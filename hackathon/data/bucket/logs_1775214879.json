@@ -1,0 +1,10 @@
+{
+  "timestamp": "2026-04-03T16:44:39.848050",
+  "intent": "judging_response",
+  "actor": "multi_agent_judging_engine",
+  "context": "Multi-agent judging completed for team test_team",
+  "outcome": "success",
+  "tenant_id": "default",
+  "event_id": "default_event",
+  "additional_data": "{\"consensus_score\": 70.0}"
+}

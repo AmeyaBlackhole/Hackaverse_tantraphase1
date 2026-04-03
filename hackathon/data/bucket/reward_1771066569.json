@@ -1,0 +1,10 @@
+{
+  "action": "submission_judged_209388cb",
+  "outcome": "success",
+  "reward": 1.5,
+  "feedback": "Success: 1 step(s) with positive outcome",
+  "timestamp": 1771066554.3066256,
+  "steps_count": 1,
+  "tenant_id": "default",
+  "event_id": "default_event"
+}

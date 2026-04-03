@@ -1,0 +1,10 @@
+{
+  "action": "Process input: explain machine learning in simple terms -> Take general action",
+  "outcome": "success",
+  "reward": 1.5,
+  "feedback": "Success: 1 step(s) with positive outcome",
+  "timestamp": 1770186636.6634371,
+  "steps_count": 1,
+  "tenant_id": "default",
+  "event_id": "default_event"
+}

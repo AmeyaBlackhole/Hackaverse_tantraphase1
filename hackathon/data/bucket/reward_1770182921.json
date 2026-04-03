@@ -1,0 +1,10 @@
+{
+  "action": "Process input: help us improve our project idea -> Take general action | Context: location=unknown, priority=normal",
+  "outcome": "success",
+  "reward": 3.0,
+  "feedback": "Success: 2 step(s) with positive outcome",
+  "timestamp": 1770182905.8911977,
+  "steps_count": 2,
+  "tenant_id": "default",
+  "event_id": "default_event"
+}

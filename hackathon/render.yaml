@@ -1,0 +1,45 @@
+services:
+  - type: web
+    name: hackathon-backend
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn src.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /system/ready
+    envVars:
+      - key: BHIV_CORE_URL
+        value: "https://placeholder-core-url.com"
+      - key: BHIV_BUCKET_DIR
+        value: "./data/bucket"
+      - key: BUCKET_DB_NAME
+        value: "blackholeinifverse60_db_user"
+      - key: API_KEY
+        value: "production_secret_key_2024"
+      - key: OPENAI_API_KEY
+        value: "sk-placeholder-openai-key"
+      - key: ALLOWED_ORIGINS
+        value: "*"
+      - key: NOTIFIER_URL
+        value: "https://YOUR_APP_ON_RENDER.onrender.com"
+      - key: ENV
+        value: "production"
+      - key: MONGODB_URI
+        fromService:
+          name: mongodb
+          property: connectionString
+
+  - type: pserv
+    name: mongodb
+    env: docker
+    repo: mongo
+    tag: latest
+    diskSizeGB: 10
+    instanceSize: free
+
+cron:
+  - name: reminder-job
+    schedule: "0 9 * * *" # every day at 09:00 UTC
+    url: "https://YOUR_APP_ON_RENDER.onrender.com/flows/reminder"
+    method: POST
+    body: '{"target":"teams"}'
+    headers:
+      Content-Type: application/json

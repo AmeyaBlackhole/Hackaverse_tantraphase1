@@ -1,0 +1,12 @@
+{
+  "team_id": "team_beta",
+  "project_title": "Test Project",
+  "description": "A test project submission",
+  "github_link": "https://github.com/test/test-project",
+  "tech_stack": [
+    "Python",
+    "FastAPI",
+    "React"
+  ],
+  "timestamp": 1768371810
+}
