@@ -117,5 +117,9 @@ COLLECTIONS = {
     "notifications": "notifications",
     "announcements": "announcements",
     "activities": "activities",
-    "team_members": "team_members"
+    "team_members": "team_members",
+    "files": "files",
+    "provenance_logs": "provenance_logs",
+    "rewards": "rewards",
+    "webhooks": "webhooks",
 }

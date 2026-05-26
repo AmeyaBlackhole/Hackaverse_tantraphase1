@@ -1,6 +1,6 @@
 from fastapi import APIRouter
-from src.mcp_router import route_message
-from src.schemas.response import APIResponse
+from ..mcp_router import route_message
+from ..schemas.response import APIResponse
 
 router = APIRouter(prefix="/mcp")
 

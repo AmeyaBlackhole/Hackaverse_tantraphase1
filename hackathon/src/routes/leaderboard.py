@@ -4,10 +4,11 @@ import logging
 from ..auth import get_api_key, get_current_user_id
 from ..database import get_db
 from ..db_models import COLLECTIONS
+from ..schemas.response import APIResponse
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/hackathons", tags=["leaderboard"], dependencies=[Depends(get_api_key)])
+router = APIRouter(prefix="/hackathons", tags=["leaderboard"], dependencies=[Depends(get_api_key)])
 
 @router.get("/{hackathon_id}/leaderboard")
 async def get_leaderboard(hackathon_id: str, user_id: str = Depends(get_current_user_id)):
@@ -52,10 +53,7 @@ async def get_leaderboard(hackathon_id: str, user_id: str = Depends(get_current_
         
         logger.info(f"Leaderboard generated for hackathon {hackathon_id} by user {user_id}")
         
-        return {
-            "success": True,
-            "data": leaderboard
-        }
+        return APIResponse(success=True, message=f"Leaderboard with {len(leaderboard)} entries", data=leaderboard)
     
     except HTTPException:
         raise
@@ -69,7 +67,7 @@ async def get_public_leaderboard(hackathon_id: str):
     try:
         db = get_db()
         if db is None:
-            return {"success": True, "data": []}
+            return APIResponse(success=True, message="No data", data=[])
         
         projects = list(
             db[COLLECTIONS["submissions"]].find({"hackathon_id": hackathon_id})
@@ -101,8 +99,8 @@ async def get_public_leaderboard(hackathon_id: str):
         for idx, item in enumerate(leaderboard):
             item["rank"] = idx + 1
         
-        return {"success": True, "data": leaderboard}
+        return APIResponse(success=True, message=f"Leaderboard with {len(leaderboard)} entries", data=leaderboard)
     
     except Exception as e:
         logger.error(f"Error fetching public leaderboard: {str(e)}")
-        return {"success": True, "data": []}
+        return APIResponse(success=True, message="No data", data=[])

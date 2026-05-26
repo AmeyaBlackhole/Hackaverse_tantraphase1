@@ -1,27 +1,52 @@
-import axios from 'axios';
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// DEPRECATED — Use the canonical api.js service instead
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//
+// This file is DEPRECATED and will be removed in a future sprint.
+// All components should import from '../services/api' instead.
+//
+// Reasons for deprecation:
+//   1. Does not use the /api/v1 versioned namespace
+//   2. Does not have automatic token refresh logic
+//   3. Does not capture trace_ids for observability
+//   4. Creates contract confusion with duplicate axios instances
+//
+// Migration guide:
+//   BEFORE: import apiClient, { adminAPI } from '../services/apiClient';
+//   AFTER:  import { apiService } from '../services/api';
+//           apiService.admin.getDashboard()  // replaces adminAPI.getDashboard()
+//
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
-const API_KEY = import.meta.env.VITE_API_KEY || '2b899caf7e3aea924c96761326bdded5162da31a9d1fdba59a2a451d2335c778';
+import axios from 'axios';
+import { getApiKey } from '../constants/apiKey';
+import { API_BASE_URL } from '../constants/appConstants';
+
+console.warn(
+  '[HackaVerse] DEPRECATION WARNING: apiClient.js is deprecated. ' +
+  'Use the canonical api.js service instead. ' +
+  'See apiClient.js header comments for migration guide.'
+);
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
   headers: {
-    'X-API-Key': API_KEY,
+    'X-API-Key': getApiKey(),
     'Content-Type': 'application/json'
   }
 });
 
-// Admin APIs
+// Admin APIs — DEPRECATED: use apiService.admin.* from api.js
 export const adminAPI = {
-  getDashboard: () => apiClient.get('/api/admin/dashboard'),
-  createHackathon: (data) => apiClient.post('/api/hackathons', data),
-  inviteJudge: (email) => apiClient.post('/api/admin/invite-judge', { email }),
+  getDashboard: () => apiClient.get('/admin/dashboard'),
+  createHackathon: (data) => apiClient.post('/hackathons', data),
+  inviteJudge: (email) => apiClient.post('/admin/invite-judge', { email }),
   inviteParticipant: (email, hackathonId) => 
-    apiClient.post('/api/admin/invite-participant', { email, hackathonId }),
+    apiClient.post('/admin/invite-participant', { email, hackathonId }),
   getActivityLogs: (limit = 10) => apiClient.get(`/admin/logs?limit=${limit}`)
 };
 
-// Submission APIs
+// Submission APIs — DEPRECATED: use apiService.submissions.* from api.js
 export const submissionAPI = {
   getAllSubmissions: () => apiClient.get('/submissions'),
   getSubmissionById: (submissionId) => apiClient.get(`/submissions/${submissionId}`),
@@ -29,28 +54,28 @@ export const submissionAPI = {
   createSubmission: (data) => apiClient.post('/submissions', data),
 };
 
-// Invitation APIs
+// Invitation APIs — DEPRECATED: use apiService.teams.* from api.js
 export const invitationAPI = {
   getInvitations: (userEmail) => apiClient.get(`/invitations?user_email=${userEmail}`),
   acceptInvitation: (invitationId) => apiClient.post(`/invitations/${invitationId}/accept`),
   declineInvitation: (invitationId) => apiClient.post(`/invitations/${invitationId}/decline`)
 };
 
-// Judging APIs
+// Judging APIs — DEPRECATED: use apiService.judge.* from api.js
 export const judgingAPI = {
-  scoreProject: (data) => apiClient.post('/api/judging/score', data),
-  getProjectScores: (projectId) => apiClient.get(`/api/judging/scores/${projectId}`)
+  scoreProject: (data) => apiClient.post('/judging/score', data),
+  getProjectScores: (projectId) => apiClient.get(`/judging/scores/${projectId}`)
 };
 
-// Announcements APIs
+// Announcements APIs — DEPRECATED: use apiService.announcements.* from api.js
 export const announcementsAPI = {
   getAll: () => apiClient.get('/notifications/announcements'),
   create: (data) => apiClient.post('/notifications/announcements', data)
 };
 
-// Leaderboard APIs
+// Leaderboard APIs — DEPRECATED: use apiService.leaderboard.* from api.js
 export const leaderboardAPI = {
-  getLeaderboard: (hackathonId, limit = 50) => apiClient.get(`/api/hackathons/${hackathonId}/leaderboard`, { params: { limit } })
+  getLeaderboard: (hackathonId, limit = 50) => apiClient.get(`/hackathons/${hackathonId}/leaderboard`, { params: { limit } })
 };
 
 export default apiClient;

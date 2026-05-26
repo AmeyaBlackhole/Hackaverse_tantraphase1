@@ -1,6 +1,7 @@
 # Configure logging FIRST, before any other imports that might interfere
 import logging
 import os
+import json
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -42,42 +43,184 @@ app = FastAPI(
 @app.on_event("startup")
 async def startup_event():
     """Startup event - connect to database"""
-    print("\n" + "="*70)
-    print("[STARTUP] HackaVerse Backend Starting...")
-    print("="*70)
+    logger.info("="*70)
+    logger.info("[STARTUP] HackaVerse Backend Starting...")
+    logger.info("="*70)
     
     # Connect to database
     success = connect_to_db()
     
     if success:
-        print("\n[SUCCESS] Backend Ready!")
-        print("   - Database: Connected")
-        print("   - API Docs: http://localhost:8000/docs")
+        logger.info("[SUCCESS] Backend Ready! Database: Connected | Docs: /docs")
     else:
-        print("\n[WARNING] Backend Started in Degraded Mode")
-        print("   - Database: NOT Connected")
-        print("   - Some features may not work")
+        logger.warning("[WARNING] Backend Started in Degraded Mode — Database NOT Connected")
     
-    print("="*70 + "\n")
+    logger.info("="*70)
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """Shutdown event - close database connection"""
     close_db()
 
-# CORS Configuration
+# CORS Configuration — locked to specific origins in production
+_env = os.getenv("ENV", "development").lower()
+_raw_origins = os.getenv("ALLOWED_ORIGINS", "")
+
+if _raw_origins.strip() and _raw_origins.strip() != "*":
+    # Explicit origins set — use them
+    _allowed_origins = [o.strip() for o in _raw_origins.split(",") if o.strip()]
+elif _env == "production":
+    # PRODUCTION with no explicit origins: default to known domains
+    _allowed_origins = [
+        "https://hackaverse-mu.vercel.app",
+        "https://hackaverse.vercel.app",
+    ]
+    logger.warning(
+        "[CORS] Production mode with no ALLOWED_ORIGINS set — "
+        "defaulting to known Vercel domains. Set ALLOWED_ORIGINS in .env "
+        "to include TANTRA domains."
+    )
+else:
+    # Development — allow all but log warning
+    _allowed_origins = ["*"]
+    logger.warning(
+        "[CORS] Wildcard (*) origins enabled — acceptable for local dev only. "
+        "Set ALLOWED_ORIGINS before deploying."
+    )
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-    expose_headers=["*"]
+    allow_origins=_allowed_origins,
+    allow_credentials=True if "*" not in _allowed_origins else False,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-API-Key", "X-Nonce",
+                   "X-Timestamp", "X-Signature", "X-CSRF-Token"],
+    expose_headers=["X-Request-Id"],
 )
 
 # Add security middleware FIRST
 from .middleware import SecurityMiddleware
 app.add_middleware(SecurityMiddleware)
+
+# ============================================================================
+# TRACE ID MIDDLEWARE — canonical request tracing with correlation logging
+# ============================================================================
+import uuid as _uuid
+import time as _time
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
+from .observability.correlation_logger import CorrelationLogger
+
+class TraceIdMiddleware(BaseHTTPMiddleware):
+    """Inject a unique trace_id into every request/response.
+
+    The trace_id is:
+    - Generated per request as 'hv-<hex16>'
+    - Stored on request.state.trace_id for downstream use
+    - Returned in X-Request-Id response header
+    - Used by APIResponse for correlation
+    - Logged with full request lifecycle (start + completion)
+
+    Trace propagation:
+    - Accepts optional X-Trace-Parent header from upstream callers
+    - Stores parent_trace_id on request.state for lineage reconstruction
+    - Never reuses client-supplied IDs (generates own trace_id for safety)
+    """
+
+    # Paths that skip lifecycle logging to reduce noise
+    _QUIET_PATHS = {"/", "/health", "/docs", "/redoc", "/openapi.json",
+                    "/csrf-token", "/system/ready", "/system/health"}
+
+    async def dispatch(self, request: Request, call_next):
+        trace_id = f"hv-{_uuid.uuid4().hex[:16]}"
+        request.state.trace_id = trace_id
+        # Capture parent trace_id from upstream caller (frontend or TANTRA)
+        parent_trace = request.headers.get("x-trace-parent")
+        request.state.parent_trace_id = parent_trace or None
+        # Pre-set user_id placeholder; auth layer can overwrite later
+        if not hasattr(request.state, "user_id"):
+            request.state.user_id = "anonymous"
+
+        # Build correlation logger for this request
+        path = request.url.path
+        clean_path = path.replace("/api/v1", "") if path.startswith("/api/v1") else path
+        should_log = clean_path not in self._QUIET_PATHS
+
+        if should_log:
+            clog = CorrelationLogger.from_request(request)
+            clog.request_started()
+
+        response = await call_next(request)
+        response.headers["X-Request-Id"] = trace_id
+
+        if should_log:
+            clog.request_completed(response.status_code)
+
+        return response
+
+app.add_middleware(TraceIdMiddleware)
+
+# ============================================================================
+# CSRF PROTECTION MIDDLEWARE
+# ============================================================================
+import secrets as _secrets
+
+class CSRFMiddleware(BaseHTTPMiddleware):
+    """CSRF protection for state-changing requests.
+    
+    Validates X-CSRF-Token header on POST/PUT/PATCH/DELETE requests
+    when the request comes from a browser (has cookies/session).
+    API-key authenticated requests are exempt (machine-to-machine).
+    """
+    SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+    EXEMPT_PATHS = {"/auth/login", "/auth/register", "/docs", "/redoc",
+                    "/openapi.json", "/", "/health", "/system/ready",
+                    "/system/health"}
+
+    async def dispatch(self, request: Request, call_next):
+        # Skip safe methods
+        if request.method in self.SAFE_METHODS:
+            return await call_next(request)
+        # Skip exempt paths (strip /api/v1 prefix if present)
+        path = request.url.path
+        clean_path = path.replace("/api/v1", "") if path.startswith("/api/v1") else path
+        if clean_path in self.EXEMPT_PATHS:
+            return await call_next(request)
+        # Skip if API key is present (machine-to-machine)
+        if request.headers.get("X-API-Key"):
+            return await call_next(request)
+        # Skip if no cookies (not a browser session)
+        if not request.cookies:
+            return await call_next(request)
+        # Validate CSRF token
+        csrf_token = request.headers.get("X-CSRF-Token")
+        session_csrf = request.cookies.get("csrf_token")
+        if not csrf_token or not session_csrf or csrf_token != session_csrf:
+            return JSONResponse(
+                status_code=403,
+                content={"success": False, "message": "CSRF token missing or invalid",
+                         "data": None, "trace_id": getattr(getattr(request, 'state', None), 'trace_id', 'hv-unknown'),
+                         "error_code": "CSRF_INVALID"}
+            )
+        return await call_next(request)
+
+from starlette.middleware.base import BaseHTTPMiddleware
+app.add_middleware(CSRFMiddleware)
+
+# CSRF token endpoint
+@app.get("/csrf-token")
+def get_csrf_token():
+    """Generate a CSRF token and set it as a cookie."""
+    from starlette.responses import JSONResponse as StarletteJSON
+    token = _secrets.token_urlsafe(32)
+    response = StarletteJSON(
+        content={"success": True, "message": "CSRF token generated", "data": {"csrf_token": token}}
+    )
+    response.set_cookie(
+        key="csrf_token", value=token, httponly=False, samesite="strict",
+        secure=_env == "production", max_age=3600
+    )
+    return response
 
 # ============================================================================
 # CORE ROUTERS
@@ -96,7 +239,72 @@ from .routes.judge_review import router as judge_review_router
 from .routes.team_members_management import router as team_members_router
 from .routes.judge_invitations import router as judge_invitations_router
 from .routes.mcp import router as mcp_router
+from .routes.teams import router as teams_router
+from .routes.user_profile import router as user_profile_router
+from .routes.submissions_crud import router as submissions_crud_router
+from .routes.missing_endpoints import (
+    reward_router,
+    leaderboard_router as missing_leaderboard_router,
+    judging_router,
+)
+from .routes.file_uploads import router as file_uploads_router
+from .routes.webhooks import router as webhooks_router
 
+# --------------------------------------------------------------------------
+# API VERSIONING — Single canonical namespace: /api/v1
+# --------------------------------------------------------------------------
+# All routers are mounted ONLY under /api/v1. No duplicate registrations.
+# Frontend is configured to use API_BASE_URL = http://host:port/api/v1
+# --------------------------------------------------------------------------
+from fastapi import APIRouter as _APIRouter
+
+API_PREFIX = "/api/v1"
+v1 = _APIRouter(prefix=API_PREFIX)
+
+# Auth
+v1.include_router(auth_router, prefix="/auth")
+
+# Admin
+v1.include_router(admin_router)
+
+# Hackathons (public + authenticated)
+v1.include_router(hackathons_public_router)
+v1.include_router(hackathons_router)
+
+# Teams (CRUD + management + members)
+v1.include_router(teams_crud_router)     # /api/v1/teams (GET list, GET by id)
+v1.include_router(teams_router)          # /api/v1/teams (POST create, invitations, etc.)
+v1.include_router(team_members_router)   # /api/v1/teams (member management)
+
+# Submissions
+v1.include_router(submissions_router)
+v1.include_router(submissions_crud_router)
+
+# Judging & Leaderboard
+v1.include_router(judge_router)
+v1.include_router(judge_review_router)
+v1.include_router(judge_invitations_router)
+v1.include_router(leaderboard_router)
+v1.include_router(judging_router)
+
+# System & Infra
+v1.include_router(system_router)
+v1.include_router(notifications_router)
+v1.include_router(mcp_router)
+v1.include_router(user_profile_router)
+v1.include_router(reward_router)
+v1.include_router(file_uploads_router)
+v1.include_router(webhooks_router)
+
+# Mount versioned router
+app.include_router(v1)
+
+# --------------------------------------------------------------------------
+# BACKWARD COMPATIBILITY — unversioned aliases for frontend migration period
+# These mirror the v1 routes at the root level so existing frontend calls
+# (e.g., /auth/login, /teams, /hackathons) continue to work until the
+# frontend is fully migrated to /api/v1 paths.
+# --------------------------------------------------------------------------
 app.include_router(auth_router, prefix="/auth")
 app.include_router(admin_router)
 app.include_router(hackathons_public_router)
@@ -111,11 +319,28 @@ app.include_router(judge_review_router)
 app.include_router(judge_invitations_router)
 app.include_router(team_members_router)
 app.include_router(mcp_router)
+app.include_router(teams_router)
+app.include_router(user_profile_router)
+app.include_router(submissions_crud_router)
+app.include_router(reward_router)
+app.include_router(judging_router)
+app.include_router(file_uploads_router)
+app.include_router(webhooks_router)
 
-# Register error handlers
-from .middleware_handlers.error_handler import api_exception_handler, validation_exception_handler
+# --------------------------------------------------------------------------
+# DETERMINISTIC ERROR CONTRACT SYSTEM
+# --------------------------------------------------------------------------
+# All errors return: {success, message, data, trace_id, error_code}
+# --------------------------------------------------------------------------
+from .middleware_handlers.error_handler import (
+    http_exception_handler,
+    validation_exception_handler,
+    generic_exception_handler,
+)
+
+app.add_exception_handler(HTTPException, http_exception_handler)
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
-app.add_exception_handler(Exception, api_exception_handler)
+app.add_exception_handler(Exception, generic_exception_handler)
 
 # ============================================================================
 # ESSENTIAL SYSTEM ENDPOINTS
@@ -146,17 +371,59 @@ def health_check():
         }
     )
 
+# ============================================================================
+# WEBSOCKET — Real-time Notifications
+# ============================================================================
+
+from fastapi import WebSocket, WebSocketDisconnect
+from typing import Dict, Set
+
+# In-memory connection store: user_id → set of websocket connections
+_ws_connections: Dict[str, Set[WebSocket]] = {}
+
+
+async def broadcast_to_user(user_id: str, payload: dict):
+    """Send a JSON message to every open WebSocket for a given user."""
+    for ws in list(_ws_connections.get(user_id, [])):
+        try:
+            await ws.send_json(payload)
+        except Exception:
+            _ws_connections[user_id].discard(ws)
+
+
+@app.websocket("/ws/{user_id}")
+async def websocket_endpoint(websocket: WebSocket, user_id: str):
+    """WebSocket endpoint for real-time push notifications.
+
+    Connect with: ws://localhost:8000/ws/<user_id>
+    Messages are JSON objects with a 'type' field.
+    """
+    await websocket.accept()
+    _ws_connections.setdefault(user_id, set()).add(websocket)
+    logger.info(f"[WS] User {user_id} connected ({len(_ws_connections[user_id])} sessions)")
+    try:
+        while True:
+            # Keep the connection alive; optionally handle client messages
+            data = await websocket.receive_text()
+            # Echo-back / ping-pong
+            if data == "ping":
+                await websocket.send_text("pong")
+    except WebSocketDisconnect:
+        _ws_connections[user_id].discard(websocket)
+        logger.info(f"[WS] User {user_id} disconnected")
+
+
 if __name__ == "__main__":
     import uvicorn
-    
+
     port = int(os.getenv("PORT", 8000))
     host = "0.0.0.0"
-    
+
     logger.info(f"[MAIN] Starting FastAPI server")
     logger.info(f"[MAIN] Host: {host}")
     logger.info(f"[MAIN] Port: {port}")
     logger.info(f"[MAIN] Environment: {os.getenv('ENV', 'development')}")
-    
+
     uvicorn.run(
         app,
         host=host,

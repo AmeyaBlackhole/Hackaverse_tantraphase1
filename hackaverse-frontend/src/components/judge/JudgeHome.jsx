@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { API_BASE_URL } from '../../constants/appConstants';
+import { getApiKey } from '../../constants/apiKey';
 
 const JudgeHome = () => {
   const { logout } = useAuth();
@@ -29,7 +30,7 @@ const JudgeHome = () => {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
-          'X-API-Key': '2b899caf7e3aea924c96761326bdded5162da31a9d1fdba59a2a451d2335c778',
+          'X-API-Key': getApiKey(),
           'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
         }
       });
@@ -48,7 +49,7 @@ const JudgeHome = () => {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
-          'X-API-Key': '2b899caf7e3aea924c96761326bdded5162da31a9d1fdba59a2a451d2335c778'
+          'X-API-Key': getApiKey()
         }
       });
 

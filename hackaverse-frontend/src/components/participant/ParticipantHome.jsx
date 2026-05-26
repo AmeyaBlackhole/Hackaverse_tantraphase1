@@ -3,6 +3,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import CreateTeamModal from './CreateTeamModal';
 import { API_BASE_URL } from '../../constants/appConstants';
+import { getApiKey } from '../../constants/apiKey';
 
 const ParticipantHome = () => {
   const { user, logout } = useAuth();
@@ -28,7 +29,7 @@ const ParticipantHome = () => {
     try {
       const response = await fetch(`${API_BASE_URL}/hackathons/active`, {
         headers: { 
-          'X-API-Key': '2b899caf7e3aea924c96761326bdded5162da31a9d1fdba59a2a451d2335c778'
+          'X-API-Key': getApiKey()
         }
       });
       const data = await response.json();
@@ -47,7 +48,7 @@ const ParticipantHome = () => {
       const response = await fetch(`${API_BASE_URL}/notifications/announcements`, {
         headers: {
           'Content-Type': 'application/json',
-          'X-API-Key': import.meta.env.VITE_API_KEY || '2b899caf7e3aea924c96761326bdded5162da31a9d1fdba59a2a451d2335c778'
+          'X-API-Key': getApiKey()
         }
       });
       const data = await response.json();

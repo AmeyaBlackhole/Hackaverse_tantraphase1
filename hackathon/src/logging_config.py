@@ -31,5 +31,5 @@ def configure_uvicorn_logging():
         logger.disabled = False
         logger.propagate = True
     
-    print("Uvicorn logging configured successfully")
+    logging.getLogger(__name__).info("Uvicorn logging configured successfully")
     return True

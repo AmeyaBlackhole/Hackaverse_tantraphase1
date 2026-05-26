@@ -8,6 +8,7 @@ import logging
 from ..auth import get_api_key, get_current_user_id
 from ..database import get_db
 from ..db_models import COLLECTIONS
+from ..schemas.response import APIResponse
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,57 @@ class TeamInvitationAccept(BaseModel):
 class TeamInvitationRespond(BaseModel):
     token: str = Field(..., description="Invitation token")
     action: str = Field(..., pattern="^(accept|decline)$", description="Accept or decline")
+
+# ============================================================================
+# LIST TEAMS (GET "" and GET /list)
+# ============================================================================
+
+@router.get("")
+async def list_teams(user_id: str = Depends(get_current_user_id)):
+    """
+    List all teams for the current user (GET /teams)
+    """
+    logger.info(f"[LIST_TEAMS] Starting - user={user_id}")
+
+    try:
+        db = get_db()
+        if db is None:
+            logger.error("[LIST_TEAMS] Database unavailable")
+            raise HTTPException(status_code=503, detail="Database unavailable")
+
+        # Find teams the user belongs to
+        team_docs = list(db[COLLECTIONS["user_teams"]].find({"user_id": user_id}))
+        team_ids = [t.get("team_id") for t in team_docs if t.get("team_id")]
+
+        if not team_ids:
+            logger.info(f"[LIST_TEAMS] No teams found for user: {user_id}")
+            return APIResponse(success=True, message="No teams found", data=[])
+
+        cursor = db[COLLECTIONS["teams"]].find({"team_id": {"$in": team_ids}})
+        teams = list(cursor)
+        for t in teams:
+            t["_id"] = str(t["_id"])
+
+        logger.info(f"[LIST_TEAMS] Retrieved {len(teams)} teams for user: {user_id}")
+        return APIResponse(success=True, message=f"Found {len(teams)} team(s)", data=teams)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[LIST_TEAMS] Error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to list teams")
+
+
+@router.get("/list")
+async def list_teams_alias(user_id: str = Depends(get_current_user_id)):
+    """
+    List all teams for the current user (GET /teams/list — alias)
+
+    This is an alias for GET /teams, kept for backward compatibility
+    with the frontend SyncContext.
+    """
+    return await list_teams(user_id=user_id)
+
 
 # ============================================================================
 # CREATE TEAM
@@ -105,17 +157,13 @@ async def create_team(data: TeamCreate, user_id: str = Depends(get_current_user_
         
         logger.info(f"[CREATE_TEAM] Success - team_id={team_id}")
         
-        return {
-            "success": True,
-            "message": "Team created successfully",
-            "data": {
+        return APIResponse(success=True, message="Team created successfully", data={
                 "team_id": team_id,
                 "team_name": data.team_name,
                 "project_title": data.project_title,
                 "leader_id": user_id,
                 "created_at": team["created_at"]
-            }
-        }
+            })
         
     except HTTPException:
         raise
@@ -180,17 +228,13 @@ async def update_team(team_id: str, data: TeamUpdate, user_id: str = Depends(get
         # Fetch updated team
         updated_team = db[COLLECTIONS["teams"]].find_one({"team_id": team_id})
         
-        return {
-            "success": True,
-            "message": "Team updated successfully",
-            "data": {
+        return APIResponse(success=True, message="Team updated successfully", data={
                 "team_id": updated_team.get("team_id"),
                 "team_name": updated_team.get("team_name"),
                 "project_title": updated_team.get("project_title"),
                 "project_description": updated_team.get("project_description"),
                 "updated_at": updated_team.get("updated_at")
-            }
-        }
+            })
         
     except HTTPException:
         raise
@@ -241,11 +285,7 @@ async def delete_team(team_id: str, user_id: str = Depends(get_current_user_id))
         
         logger.info(f"[DELETE_TEAM] Success - team_id={team_id}")
         
-        return {
-            "success": True,
-            "message": "Team deleted successfully",
-            "data": {"team_id": team_id}
-        }
+        return APIResponse(success=True, message="Team deleted successfully", data={"team_id": team_id})
         
     except HTTPException:
         raise
@@ -313,15 +353,11 @@ async def join_team(team_id: str, user_id: str = Depends(get_current_user_id)):
         
         logger.info(f"[JOIN_TEAM] Success - user={user_id} joined team={team_id}")
         
-        return {
-            "success": True,
-            "message": "Successfully joined team",
-            "data": {
+        return APIResponse(success=True, message="Successfully joined team", data={
                 "team_id": team_id,
                 "team_name": team.get("team_name"),
                 "user_id": user_id
-            }
-        }
+            })
         
     except HTTPException:
         raise
@@ -378,11 +414,7 @@ async def leave_team(team_id: str, user_id: str = Depends(get_current_user_id)):
         
         logger.info(f"[LEAVE_TEAM] Success - user={user_id} left team={team_id}")
         
-        return {
-            "success": True,
-            "message": "Successfully left team",
-            "data": {"team_id": team_id}
-        }
+        return APIResponse(success=True, message="Successfully left team", data={"team_id": team_id})
         
     except HTTPException:
         raise
@@ -453,16 +485,12 @@ async def send_team_invitation(data: TeamInvitationSend, user_id: str = Depends(
         db[COLLECTIONS["invitations"]].insert_one(invitation)
         logger.info(f"[SEND_INVITATION] Success - token={token[:20]}...")
         
-        return {
-            "success": True,
-            "message": "Invitation sent successfully",
-            "data": {
+        return APIResponse(success=True, message="Invitation sent successfully", data={
                 "team_id": data.team_id,
                 "invitee_email": data.invitee_email,
                 "token": token,
                 "status": "pending"
-            }
-        }
+            })
         
     except HTTPException:
         raise
@@ -513,15 +541,11 @@ async def accept_team_invitation(data: TeamInvitationAccept):
         
         logger.info(f"[ACCEPT_INVITATION] Success - team_id={invitation['team_id']}")
         
-        return {
-            "success": True,
-            "message": "Invitation accepted successfully",
-            "data": {
+        return APIResponse(success=True, message="Invitation accepted successfully", data={
                 "team_id": invitation["team_id"],
                 "team_name": invitation.get("team_name"),
                 "invitee_email": invitation.get("invitee_email")
-            }
-        }
+            })
         
     except HTTPException:
         raise
@@ -559,17 +583,14 @@ async def get_invitation_details(token: str):
         
         logger.info(f"[GET_INVITATION] Success")
         
-        return {
-            "success": True,
-            "data": {
+        return APIResponse(success=True, message="Invitation details retrieved", data={
                 "team_id": invitation.get("team_id"),
                 "team_name": invitation.get("team_name"),
                 "invitee_email": invitation.get("invitee_email"),
                 "hackathon_name": invitation.get("hackathon_name"),
                 "created_at": invitation.get("created_at"),
                 "expires_at": invitation.get("expires_at")
-            }
-        }
+            })
         
     except HTTPException:
         raise
@@ -609,9 +630,7 @@ async def get_received_invitations(user_id: str = Depends(get_current_user_id)):
         
         logger.info(f"[GET_RECEIVED] Found {len(invitations)} invitations")
         
-        return {
-            "success": True,
-            "data": [
+        return APIResponse(success=True, message=f"{len(invitations)} received invitations", data=[
                 {
                     "id": inv.get("id"),
                     "team_id": inv.get("team_id"),
@@ -621,8 +640,7 @@ async def get_received_invitations(user_id: str = Depends(get_current_user_id)):
                     "expires_at": inv.get("expires_at")
                 }
                 for inv in invitations
-            ]
-        }
+            ])
         
     except HTTPException:
         raise
@@ -653,9 +671,7 @@ async def get_sent_invitations(user_id: str = Depends(get_current_user_id)):
         
         logger.info(f"[GET_SENT] Found {len(invitations)} invitations")
         
-        return {
-            "success": True,
-            "data": [
+        return APIResponse(success=True, message=f"{len(invitations)} sent invitations", data=[
                 {
                     "id": inv.get("id"),
                     "team_id": inv.get("team_id"),
@@ -665,8 +681,7 @@ async def get_sent_invitations(user_id: str = Depends(get_current_user_id)):
                     "created_at": inv.get("created_at")
                 }
                 for inv in invitations
-            ]
-        }
+            ])
         
     except HTTPException:
         raise
@@ -712,11 +727,7 @@ async def respond_to_invitation(data: TeamInvitationRespond, user_id: str = Depe
             
             logger.info(f"[RESPOND_INVITATION] Invitation accepted")
             
-            return {
-                "success": True,
-                "message": "Invitation accepted",
-                "data": {"team_id": invitation["team_id"]}
-            }
+            return APIResponse(success=True, message="Invitation accepted", data={"team_id": invitation["team_id"]})
         
         elif data.action == "decline":
             # Update invitation
@@ -727,11 +738,7 @@ async def respond_to_invitation(data: TeamInvitationRespond, user_id: str = Depe
             
             logger.info(f"[RESPOND_INVITATION] Invitation declined")
             
-            return {
-                "success": True,
-                "message": "Invitation declined",
-                "data": {"team_id": invitation["team_id"]}
-            }
+            return APIResponse(success=True, message="Invitation declined", data={"team_id": invitation["team_id"]})
         
     except HTTPException:
         raise

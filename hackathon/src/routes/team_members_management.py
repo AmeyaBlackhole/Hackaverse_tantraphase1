@@ -14,6 +14,7 @@ from pymongo.errors import DuplicateKeyError
 from ..auth import get_api_key
 from ..database import get_db
 from ..db_models import COLLECTIONS
+from ..schemas.response import APIResponse
 
 logger = logging.getLogger(__name__)
 
@@ -190,14 +191,12 @@ async def accept_invitation_with_member_details(data: AcceptInvitationWithNameRe
         # Step 5: Return success response
         logger.info(f"[ACCEPT_WITH_DETAILS] Success - {data.member_name} ({invitation['invitee_email']}) joined team {invitation['team_id']}")
         
-        return {
-            "success": True,
-            "message": f"Welcome {data.member_name}! You have successfully joined the team!",
+        return APIResponse(success=True, message=f"Welcome {data.member_name}! You have successfully joined the team!", data={
             "team_id": invitation["team_id"],
             "team_name": invitation.get("team_name", ""),
             "hackathon_name": invitation.get("hackathon_name", ""),
             "member_name": data.member_name
-        }
+        })
         
     except HTTPException:
         raise
@@ -273,17 +272,13 @@ async def update_team_member(data: UpdateTeamMemberRequest):
         
         logger.info(f"[UPDATE_MEMBER] Member updated successfully: {data.user_email}")
         
-        return {
-            "success": True,
-            "message": "Team member updated successfully",
-            "data": {
+        return APIResponse(success=True, message="Team member updated successfully", data={
                 "team_id": data.team_id,
                 "user_email": data.user_email,
                 "member_name": data.member_name,
                 "role": data.role,
                 "updated_at": datetime.utcnow().isoformat()
-            }
-        }
+            })
         
     except HTTPException:
         raise
@@ -358,10 +353,7 @@ async def update_team_details(data: UpdateTeamDetailsRequest):
         # Fetch updated team
         updated_team = db[COLLECTIONS["teams"]].find_one({"team_id": data.team_id})
         
-        return {
-            "success": True,
-            "message": "Team details updated successfully",
-            "data": {
+        return APIResponse(success=True, message="Team details updated successfully", data={
                 "team_id": updated_team.get("team_id"),
                 "team_name": updated_team.get("team_name"),
                 "project_title": updated_team.get("project_title"),
@@ -369,8 +361,7 @@ async def update_team_details(data: UpdateTeamDetailsRequest):
                 "leader_id": updated_team.get("leader_id"),
                 "members": updated_team.get("members", []),
                 "updated_at": updated_team.get("updated_at", datetime.utcnow().isoformat())
-            }
-        }
+            })
         
     except HTTPException:
         raise
@@ -407,9 +398,7 @@ async def get_team_details(team_id: str):
         
         logger.info(f"[GET_TEAM_DETAILS] Found team with {len(members)} members")
         
-        return {
-            "success": True,
-            "data": {
+        return APIResponse(success=True, message=f"Team details with {len(members)} members", data={
                 "team_id": team.get("team_id"),
                 "team_name": team.get("team_name"),
                 "project_title": team.get("project_title"),
@@ -419,8 +408,7 @@ async def get_team_details(team_id: str):
                 "members": members,
                 "created_at": team.get("created_at", ""),
                 "updated_at": team.get("updated_at", "")
-            }
-        }
+            })
         
     except HTTPException:
         raise
@@ -457,11 +445,7 @@ async def get_team_members(team_id: str):
         
         logger.info(f"[GET_MEMBERS] Found {len(members)} members")
         
-        return {
-            "success": True,
-            "count": len(members),
-            "data": members
-        }
+        return APIResponse(success=True, message=f"{len(members)} team members", data=members)
         
     except HTTPException:
         raise

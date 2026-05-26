@@ -1,11 +1,13 @@
 # src/routes/auth_routes.py
-from fastapi import APIRouter, HTTPException, Depends, status, Header
+from fastapi import APIRouter, HTTPException, Depends, status, Header, Request
 from pydantic import BaseModel, EmailStr, Field
 from typing import Optional
 from datetime import datetime, timedelta
 import logging
 import secrets
 import hashlib
+import bcrypt
+import jwt as pyjwt
 from ..database import get_db
 from ..auth import get_current_user_id
 from ..db_models import COLLECTIONS
@@ -14,7 +16,7 @@ import os
 
 logger = logging.getLogger(__name__)
 
-print("Auth routes loaded")
+logger.debug("Auth routes loaded")
 
 router = APIRouter(tags=["auth"])
 
@@ -30,7 +32,9 @@ class RegisterRequest(BaseModel):
     name: str = Field(..., min_length=2, max_length=100)
     email: EmailStr = Field(..., description="User email")
     password: str = Field(..., min_length=6, description="Password (min 6 chars)")
-    role: Optional[str] = Field(default="participant", pattern="^(admin|participant|judge)$")
+    # SECURITY: Role is always forced to 'participant' on registration.
+    # Admin/judge roles can ONLY be assigned by an existing admin.
+    role: Optional[str] = Field(default="participant")
 
 class RefreshTokenRequest(BaseModel):
     refresh_token: str
@@ -45,40 +49,70 @@ class TokenResponse(BaseModel):
 # UTILITY FUNCTIONS
 # ============================================================================
 
+# JWT secret — MUST be set in production via env var
+JWT_SECRET = os.getenv("JWT_SECRET", "hackaverse-dev-secret-change-me")
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRY_HOURS = int(os.getenv("JWT_EXPIRY_HOURS", "24"))
+
+# SECURITY: Warn if using default JWT secret
+if JWT_SECRET == "hackaverse-dev-secret-change-me":
+    _env_mode = os.getenv("ENV", "development").lower()
+    if _env_mode == "production":
+        logger.critical("[SECURITY] JWT_SECRET is using DEFAULT VALUE in PRODUCTION! Set JWT_SECRET in .env immediately!")
+    else:
+        logger.warning("[SECURITY] JWT_SECRET is using default value — acceptable for local dev only")
+
+
 def hash_password(password: str) -> str:
-    """Hash password using SHA-256"""
-    return hashlib.sha256(password.encode()).hexdigest()
+    """Hash password using bcrypt (salted automatically)."""
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+
+def _is_bcrypt_hash(h: str) -> bool:
+    """Check whether a stored hash looks like a bcrypt hash."""
+    return h.startswith("$2b$") or h.startswith("$2a$")
+
 
 def verify_password(stored_hash: str, password: str) -> bool:
-    """Verify password against stored hash"""
-    return hash_password(password) == stored_hash
+    """Verify password against stored hash.
+
+    Supports both legacy SHA-256 hashes (for backward compat) and bcrypt.
+    """
+    if _is_bcrypt_hash(stored_hash):
+        return bcrypt.checkpw(password.encode("utf-8"), stored_hash.encode("utf-8"))
+    # Legacy SHA-256 path
+    return hashlib.sha256(password.encode()).hexdigest() == stored_hash
+
+
+def _rehash_if_legacy(stored_hash: str, password: str, db, user_id: str):
+    """If the user still has a legacy SHA-256 hash, silently upgrade to bcrypt."""
+    if not _is_bcrypt_hash(stored_hash):
+        new_hash = hash_password(password)
+        try:
+            db[COLLECTIONS["users"]].update_one(
+                {"user_id": user_id},
+                {"$set": {"password_hash": new_hash}}
+            )
+            logger.info(f"[AUTH] Password hash upgraded to bcrypt for user {user_id}")
+        except Exception as exc:
+            logger.warning(f"[AUTH] Could not upgrade hash for {user_id}: {exc}")
+
 
 def generate_token(length: int = 32) -> str:
     """Generate a random token"""
     return secrets.token_urlsafe(length)
 
+
 def create_jwt_token(user_id: str, email: str) -> str:
-    """Create a simple JWT-like token (base format: header.payload.signature)"""
-    import json
-    import base64
-    
-    # Header
-    header = json.dumps({"alg": "HS256", "typ": "JWT"})
-    # Payload
-    payload = json.dumps({
+    """Create a proper JWT token signed with HMAC-SHA256."""
+    now = datetime.utcnow()
+    payload = {
         "user_id": user_id,
         "email": email,
-        "iat": datetime.now().timestamp(),
-        "exp": (datetime.now() + timedelta(hours=24)).timestamp()
-    })
-    # Simple signature
-    signature = generate_token(16)
-    
-    header_b64 = base64.urlsafe_b64encode(header.encode()).decode().rstrip('=')
-    payload_b64 = base64.urlsafe_b64encode(payload.encode()).decode().rstrip('=')
-    sig_b64 = base64.urlsafe_b64encode(signature.encode()).decode().rstrip('=')
-    
-    return f"{header_b64}.{payload_b64}.{sig_b64}"
+        "iat": now,
+        "exp": now + timedelta(hours=JWT_EXPIRY_HOURS),
+    }
+    return pyjwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 def get_user_response(user_doc: dict) -> dict:
     """Format user document for response"""
@@ -98,15 +132,11 @@ def get_user_response(user_doc: dict) -> dict:
 # ============================================================================
 
 @router.post("/register", summary="Register a new user")
-async def register(request: RegisterRequest):
-    """
-    Register a new user account
-    
-    - **name**: Full name (2-100 characters)
-    - **email**: Valid email address
-    - **password**: Password (min 6 characters)
-    - **role**: User role (admin, participant, judge) - default: participant
-    """
+async def register(request: RegisterRequest, raw_request: Request):
+    """Register a new user account."""
+    # Rate limit: 10 attempts per 5 minutes per IP
+    from ..utils.rate_limiter_public import check_auth_rate_limit
+    check_auth_rate_limit(raw_request)
     try:
         db = get_db()
         if db is None:
@@ -119,21 +149,21 @@ async def register(request: RegisterRequest):
                 "user_id": user_id,
                 "email": request.email,
                 "name": request.name,
-                "role": request.role,
+                "role": "participant",  # SECURITY: Always force participant on registration
                 "_id": user_id,
                 "created_at": datetime.now().isoformat()
             }
             
-            return {
-                "success": True,
-                "message": "User registered successfully (in-memory)",
-                "data": {
+            return APIResponse(
+                success=True,
+                message="User registered successfully (in-memory)",
+                data={
                     "access_token": access_token,
                     "refresh_token": refresh_token,
                     "token_type": "bearer",
                     "user": get_user_response(user_data)
                 }
-            }
+            )
         
         # Check if user already exists
         existing_user = db[COLLECTIONS["users"]].find_one({"email": request.email})
@@ -148,7 +178,7 @@ async def register(request: RegisterRequest):
             "user_id": user_id,
             "email": request.email,
             "name": request.name,
-            "role": request.role,
+            "role": "participant",  # SECURITY: Always force participant on registration
             "password_hash": password_hash,
             "profile_completion": 0,
             "skills": [],
@@ -176,16 +206,16 @@ async def register(request: RegisterRequest):
         logger.info(f"User registered: {request.email} (user_id: {user_id})")
         logger.debug(f"[REGISTER] Access token generated: {access_token[:20]}...")
         
-        return {
-            "success": True,
-            "message": "User registered successfully",
-            "data": {
+        return APIResponse(
+            success=True,
+            message="User registered successfully",
+            data={
                 "access_token": access_token,
                 "refresh_token": refresh_token,
                 "token_type": "bearer",
                 "user": get_user_response(user_data)
             }
-        }
+        )
     
     except HTTPException:
         raise
@@ -195,13 +225,11 @@ async def register(request: RegisterRequest):
 
 
 @router.post("/login", summary="Login user")
-async def login(request: LoginRequest):
-    """
-    Login with email and password
-    
-    - **email**: User email
-    - **password**: User password
-    """
+async def login(request: LoginRequest, raw_request: Request):
+    """Login with email and password."""
+    # Rate limit: 10 attempts per 5 minutes per IP
+    from ..utils.rate_limiter_public import check_auth_rate_limit
+    check_auth_rate_limit(raw_request)
     try:
         db = get_db()
         if db is None:
@@ -215,9 +243,14 @@ async def login(request: LoginRequest):
         # Verify password
         if not verify_password(user.get("password_hash", ""), request.password):
             raise HTTPException(status_code=401, detail="Invalid email or password")
-        
-        # Generate tokens
+
+        # Extract user_id BEFORE using it (was P0 crash bug — used before assignment)
         user_id = user.get("user_id", "")
+
+        # Silently upgrade legacy SHA-256 hash to bcrypt on successful login
+        _rehash_if_legacy(user.get("password_hash", ""), request.password, db, user_id)
+
+        # Generate tokens
         access_token = create_jwt_token(user_id, request.email)
         refresh_token = generate_token(32)
         
@@ -232,16 +265,16 @@ async def login(request: LoginRequest):
         logger.info(f"User logged in: {request.email} (user_id: {user_id})")
         logger.debug(f"[LOGIN] Access token generated: {access_token[:20]}...")
         
-        return {
-            "success": True,
-            "message": "Login successful",
-            "data": {
+        return APIResponse(
+            success=True,
+            message="Login successful",
+            data={
                 "access_token": access_token,
                 "refresh_token": refresh_token,
                 "token_type": "bearer",
                 "user": get_user_response(user)
             }
-        }
+        )
     
     except HTTPException:
         raise

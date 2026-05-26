@@ -1,5 +1,8 @@
 import uuid
+import logging
 from datetime import datetime
+
+_logger = logging.getLogger(__name__)
 
 def log_event(db, eventType, message, userId=None, hackathonId=None, teamId=None):
     """Log an activity event to the database"""
@@ -16,6 +19,6 @@ def log_event(db, eventType, message, userId=None, hackathonId=None, teamId=None
     try:
         db["activity_events"].insert_one(event)
     except Exception as e:
-        print(f"Error logging event: {e}")
+        _logger.error(f"Error logging event: {e}")
     
     return event

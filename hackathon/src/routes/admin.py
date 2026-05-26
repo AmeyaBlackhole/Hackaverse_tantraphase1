@@ -11,14 +11,13 @@ from ..schemas.response import APIResponse
 from ..utils.email_validator import validate_email_or_raise
 from ..utils.rate_limiter import invitation_limiter
 from ..utils.activity_logger import log_activity
-from ..services.email_service import send_judge_invitation_email
 import secrets
 import logging
 
-router = APIRouter(prefix="", tags=["admin"])
+router = APIRouter(prefix="/admin", tags=["admin"])
 logger = logging.getLogger(__name__)
 
-@router.get("/api/admin/dashboard", summary="Get admin dashboard data", dependencies=[Depends(get_api_key)])
+@router.get("/dashboard", summary="Get admin dashboard data", dependencies=[Depends(get_api_key)])
 async def get_dashboard():
     """
     Get dashboard data for admin panel including KPIs and recent activities.

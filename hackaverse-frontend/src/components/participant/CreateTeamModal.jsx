@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { API_BASE_URL } from '../../constants/appConstants';
+import { getApiKey } from '../../constants/apiKey';
 
 const CreateTeamModal = ({ hackathon, onClose, onSuccess }) => {
   const [formData, setFormData] = useState({
@@ -20,7 +21,7 @@ const CreateTeamModal = ({ hackathon, onClose, onSuccess }) => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-API-Key': '2b899caf7e3aea924c96761326bdded5162da31a9d1fdba59a2a451d2335c778'
+          'X-API-Key': getApiKey()
         },
         body: JSON.stringify({
           hackathon_id: hackathon.id,

@@ -8,10 +8,12 @@ from typing import Dict, List, Any, Optional
 from datetime import datetime, timedelta
 import smtplib
 
+import logging as _logging
+
 try:
     from groq import Groq
 except ImportError:
-    print("Groq library not installed. Please install with: pip install groq")
+    _logging.getLogger(__name__).warning("Groq library not installed. Please install with: pip install groq")
     Groq = None
 
 # Email imports with fallback
@@ -39,7 +41,7 @@ class GroqAgent:
             try:
                 self.client = Groq(api_key=Config.GROQ_API_KEY)
             except Exception as e:
-                print(f"Failed to initialize Groq client: {e}")
+                _logging.getLogger(__name__).error(f"Failed to initialize Groq client: {e}")
     
     def generate_response(self, user_prompt: str, model: str = None) -> str:
         """Generate response using Groq API"""
@@ -315,11 +317,11 @@ class ReminderBot(GroqAgent):
     def send_email_reminder(self, recipients: List[str], subject: str, message: str) -> bool:
         """Send email reminders (if email is configured)"""
         if not Config.EMAIL_USER or not Config.EMAIL_PASSWORD:
-            print("Email configuration not available")
+            _logging.getLogger(__name__).warning("Email configuration not available")
             return False
 
         if not EMAIL_AVAILABLE:
-            print("Email modules not available")
+            _logging.getLogger(__name__).warning("Email modules not available")
             return False
 
         try:
@@ -341,7 +343,7 @@ class ReminderBot(GroqAgent):
             return True
 
         except Exception as e:
-            print(f"Failed to send email: {e}")
+            _logging.getLogger(__name__).error(f"Failed to send email: {e}")
             return False
 
 # Agent factory for easy instantiation

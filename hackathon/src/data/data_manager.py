@@ -9,6 +9,9 @@ import uuid
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 from config import Config
+import logging
+
+_logger = logging.getLogger(__name__)
 
 class DataManager:
     """Handles all data operations for the hackathon system"""
@@ -24,7 +27,7 @@ class DataManager:
                     return json.load(f)
             return []
         except Exception as e:
-            print(f"Error loading {file_path}: {e}")
+            _logger.error(f"Error loading {file_path}: {e}")
             return []
     
     def save_json(self, file_path: str, data: List[Dict[str, Any]]) -> bool:
@@ -34,7 +37,7 @@ class DataManager:
                 json.dump(data, f, indent=2, ensure_ascii=False)
             return True
         except Exception as e:
-            print(f"Error saving {file_path}: {e}")
+            _logger.error(f"Error saving {file_path}: {e}")
             return False
     
     # Problem Statements Management

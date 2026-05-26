@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { API_BASE_URL, API_TIMEOUT } from '../constants/appConstants';
+import { getApiKey } from '../constants/apiKey';
 
 // Create axios instance with default config
 const api = (axios.create || (() => axios))({
@@ -10,16 +11,19 @@ const api = (axios.create || (() => axios))({
   },
 });
 
-// Request interceptor to add auth token and API key
+// Request interceptor to add auth token, API key, and trace propagation
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('authToken');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
-    // Add API key from env
-    const apiKey = import.meta.env.VITE_API_KEY || '2b899caf7e3aea924c96761326bdded5162da31a9d1fdba59a2a451d2335c778';
-    config.headers['X-API-Key'] = apiKey;
+    // Add API key from centralized config
+    config.headers['X-API-Key'] = getApiKey();
+    // Trace propagation: send last known trace_id as parent for request lineage
+    if (_lastTraceId) {
+      config.headers['X-Trace-Parent'] = _lastTraceId;
+    }
     return config;
   },
   (error) => {
@@ -27,40 +31,136 @@ api.interceptors.request.use(
   }
 );
 
-// Response interceptor for error handling
+// Response interceptor for error handling + automatic token refresh
+let isRefreshing = false;
+let failedQueue = [];
+
+const processQueue = (error, token = null) => {
+  failedQueue.forEach((prom) => {
+    if (error) prom.reject(error);
+    else prom.resolve(token);
+  });
+  failedQueue = [];
+};
+
+// ---------------------------------------------------------------------------
+// Trace continuity: capture X-Request-Id from every response
+// ---------------------------------------------------------------------------
+let _lastTraceId = null;
+
+/**
+ * Get the trace_id from the most recent API response.
+ * Useful for debugging and developer tools.
+ */
+export const getLastTraceId = () => _lastTraceId;
+
 api.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
+  (response) => {
+    // Capture trace_id from successful responses
+    const traceId = response.headers?.['x-request-id'] || response.data?.trace_id;
+    if (traceId) {
+      _lastTraceId = traceId;
+      response.traceId = traceId;
+    }
+    return response;
+  },
+  async (error) => {
+    const originalRequest = error.config;
+
+    // Auto-refresh on 401 (token expired)
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      const refreshToken = localStorage.getItem('refreshToken');
+
+      // If we have a refresh token, try to get a new access token
+      if (refreshToken) {
+        if (isRefreshing) {
+          // Queue requests while refreshing
+          return new Promise((resolve, reject) => {
+            failedQueue.push({ resolve, reject });
+          })
+            .then((token) => {
+              originalRequest.headers.Authorization = `Bearer ${token}`;
+              return api(originalRequest);
+            })
+            .catch((err) => Promise.reject(err));
+        }
+
+        originalRequest._retry = true;
+        isRefreshing = true;
+
+        try {
+          const { data } = await api.post('/auth/refresh', {
+            refresh_token: refreshToken,
+          });
+
+          const newToken = data?.data?.access_token || data?.access_token;
+          if (newToken) {
+            localStorage.setItem('authToken', newToken);
+            originalRequest.headers.Authorization = `Bearer ${newToken}`;
+            processQueue(null, newToken);
+            return api(originalRequest);
+          }
+        } catch (refreshError) {
+          processQueue(refreshError, null);
+          // Refresh failed — clear everything and redirect
+          localStorage.removeItem('authToken');
+          localStorage.removeItem('refreshToken');
+          localStorage.removeItem('userData');
+          window.location.href = '/';
+          return Promise.reject(refreshError);
+        } finally {
+          isRefreshing = false;
+        }
+      }
+
+      // No refresh token — redirect to login
       localStorage.removeItem('authToken');
+      localStorage.removeItem('refreshToken');
       localStorage.removeItem('userData');
       window.location.href = '/';
     } else if (error.response) {
-      // Handle different HTTP error statuses
       const status = error.response.status;
-      let errorMessage = 'An error occurred';
+      // Capture trace_id from error responses
+      const traceId = error.response.headers?.['x-request-id']
+        || error.response.data?.trace_id;
+      if (traceId) {
+        _lastTraceId = traceId;
+        error.traceId = traceId;
+      }
+      // Capture error_code from deterministic contract
+      error.errorCode = error.response.data?.error_code || null;
+
+      let errorMessage = error.response.data?.message || 'An error occurred';
 
       if (status === 400) {
-        errorMessage = 'Bad request: ' + (error.response.data?.message || 'Invalid data');
+        errorMessage = error.response.data?.message || 'Bad request: Invalid data';
       } else if (status === 403) {
-        errorMessage = 'Forbidden: You do not have permission to access this resource';
+        errorMessage = error.response.data?.message || 'Forbidden: Access denied';
       } else if (status === 404) {
-        errorMessage = 'Resource not found';
-      } else if (status === 500) {
-        errorMessage = 'Server error: Please try again later';
+        errorMessage = error.response.data?.message || 'Resource not found';
+      } else if (status === 422) {
+        errorMessage = error.response.data?.message || 'Validation error';
+      } else if (status === 429) {
+        errorMessage = 'Too many requests. Please try again later.';
       } else if (status >= 500) {
-        errorMessage = 'Server unavailable: Please try again later';
+        errorMessage = error.response.data?.message || 'Server error: Please try again later';
       }
 
-      // Add the error message to the error object for better handling
       error.message = errorMessage;
       error.userMessage = errorMessage;
+
+      // Structured trace log for failed requests
+      if (traceId) {
+        console.warn(
+          `[HackaVerse] Request failed | trace_id=${traceId} | ` +
+          `status=${status} | error_code=${error.errorCode || 'UNKNOWN'} | ` +
+          `path=${error.config?.url || 'unknown'}`
+        );
+      }
     } else if (error.request) {
-      // Request was made but no response received
       error.message = 'Network error: No response from server';
       error.userMessage = 'Network error: Please check your connection';
     } else {
-      // Something happened in setting up the request
       error.message = 'Request setup error: ' + error.message;
       error.userMessage = 'Request failed: Please try again';
     }

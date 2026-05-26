@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { API_BASE_URL } from '../../constants/appConstants';
+import { getApiKey } from '../../constants/apiKey';
 import { useAuth } from '../../contexts/AuthContext';
 
 const JoinHackathonModal = ({ hackathon, onClose, onSuccess }) => {
@@ -47,7 +48,7 @@ const JoinHackathonModal = ({ hackathon, onClose, onSuccess }) => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-API-Key': '2b899caf7e3aea924c96761326bdded5162da31a9d1fdba59a2a451d2335c778'
+          'X-API-Key': getApiKey()
         },
         body: JSON.stringify({
           hackathon_id: hackathon.id,

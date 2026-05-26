@@ -6,6 +6,7 @@ from ..judging.consensus import aggregate_consensus
 from ..logger import ksml_logger
 from ..auth import get_api_key
 from ..schemas.response import APIResponse
+from .webhooks import dispatch_event
 from ..database import get_db
 from ..security import create_entry, compute_payload_hash
 from ..reward import RewardSystem
@@ -462,11 +463,27 @@ async def submit_and_score(request: JudgeRequest):
         )
         
         # Return clean response with only judging_result
-        return APIResponse(
+        response = APIResponse(
             success=True,
             message="Submission judged successfully",
             data=response_data
-        ).dict()
+        )
+
+        # ── TANTRA EXECUTION CHAIN: Emit observable event ──
+        # Submission → AI Evaluation → Provenance → Webhook Event
+        try:
+            await dispatch_event("submission.scored", {
+                "submission_hash": submission_hash,
+                "team_id": request.team_id,
+                "total_score": evaluation_result.get("consensus_score", 0),
+                "confidence": response_confidence,
+                "version": version,
+                "trace_id": response.trace_id,
+            })
+        except Exception as evt_err:
+            logger.warning(f"[WEBHOOK] Event dispatch failed (non-blocking): {evt_err}")
+
+        return response.model_dump()
         
     except Exception as e:
         logger.error(f"Error in submit_and_score endpoint: {str(e)}")
@@ -474,7 +491,7 @@ async def submit_and_score(request: JudgeRequest):
             success=False,
             message=f"Internal server error: {str(e)}",
             data=None
-        ).dict()
+        ).model_dump()
 
 @router.get("/queue", response_model=Dict[str, Any], summary="Get judge queue", dependencies=[Depends(get_api_key)])
 async def get_judge_queue(
@@ -506,7 +523,7 @@ async def get_judge_queue(
         success=True,
         message=f"Retrieved {len(submissions)} submissions",
         data=submissions
-    ).dict()
+    ).model_dump()
 
 @router.get("/scores", response_model=Dict[str, Any], summary="Get judge scores", dependencies=[Depends(get_api_key)])
 async def get_judge_scores(
@@ -543,7 +560,7 @@ async def get_judge_scores(
         success=True,
         message=f"Retrieved {len(scores)} scores",
         data=scores
-    ).dict()
+    ).model_dump()
 
 @router.get("/rubric", response_model=Dict[str, Any], summary="Returns judging criteria", dependencies=[Depends(get_api_key)])
 async def get_rubric():
@@ -566,7 +583,7 @@ async def get_rubric():
         success=True,
         message="Multi-agent judging criteria retrieved successfully",
         data=rubric_data
-    ).dict()  # Use .dict() for Pydantic v1 compatibility
+    ).model_dump()
 
 
 @router.post("/batch", response_model=Dict[str, Any], summary="Judge multiple submissions in batch", dependencies=[Depends(get_api_key)])
@@ -642,7 +659,7 @@ async def batch_judge(request: BatchJudgeRequest):
             "tenant_id": request.tenant_id,
             "event_id": request.event_id
         }
-    ).dict()  # Use .dict() for Pydantic v1 compatibility
+    ).model_dump()
 
 
 @router.get("/rank", response_model=Dict[str, Any], summary="Get ranked leaderboard", dependencies=[Depends(get_api_key)])
@@ -697,4 +714,4 @@ async def get_rankings(
             "tenant_id": tenant_id,
             "event_id": event_id
         }
-    ).dict()  # Use .dict() for Pydantic v1 compatibility
+    ).model_dump()

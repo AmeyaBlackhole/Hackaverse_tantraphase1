@@ -7,6 +7,7 @@ import logging
 from ..auth import get_api_key
 from ..database import get_db
 from ..db_models import COLLECTIONS
+from ..schemas.response import APIResponse
 
 logger = logging.getLogger(__name__)
 
@@ -38,10 +39,7 @@ async def get_rewards(api_key: str = Depends(get_api_key)):
         
         logger.info(f"[GET_REWARDS] Success - found {len(rewards)} rewards")
         
-        return {
-            "success": True,
-            "data": rewards
-        }
+        return APIResponse(success=True, message=f"{len(rewards)} rewards", data=rewards)
         
     except HTTPException:
         raise
@@ -94,10 +92,7 @@ async def get_leaderboard(hackathon_id: str, limit: int = 50, api_key: str = Dep
         
         logger.info(f"[GET_LEADERBOARD] Success - {len(leaderboard)} teams")
         
-        return {
-            "success": True,
-            "data": leaderboard
-        }
+        return APIResponse(success=True, message=f"{len(leaderboard)} teams", data=leaderboard)
         
     except HTTPException:
         raise
@@ -133,10 +128,7 @@ async def get_judging_scores(project_id: str):
         
         if not judgments:
             logger.warning(f"[GET_SCORES] No judgments found - project_id={project_id}")
-            return {
-                "success": True,
-                "data": []
-            }
+            return APIResponse(success=True, message="No judgments found", data=[])
         
         # Build scores response
         scores = []
@@ -153,10 +145,7 @@ async def get_judging_scores(project_id: str):
         
         logger.info(f"[GET_SCORES] Success - {len(scores)} scores")
         
-        return {
-            "success": True,
-            "data": scores
-        }
+        return APIResponse(success=True, message=f"{len(scores)} scores", data=scores)
         
     except HTTPException:
         raise
@@ -165,179 +154,10 @@ async def get_judging_scores(project_id: str):
         raise HTTPException(status_code=500, detail="Failed to get scores")
 
 # ============================================================================
-# HACKATHON ENDPOINTS
+# HACKATHON ENDPOINTS — REMOVED
 # ============================================================================
+# Hackathon CRUD is now fully handled by routes/hackathons.py
+# (GET/POST/PATCH/DELETE on /api/hackathons).
+# The duplicate hackathon_router that was here caused route conflicts
+# and has been intentionally removed.
 
-hackathon_router = APIRouter(tags=["hackathons"])
-
-class HackathonCreate(BaseModel):
-    name: str = Field(..., min_length=1, max_length=200)
-    description: str = Field(..., min_length=1)
-    start_date: str
-    end_date: str
-    min_team_size: int = Field(ge=1)
-    max_team_size: int = Field(ge=1)
-    status: Optional[str] = "active"
-
-class HackathonUpdate(BaseModel):
-    name: Optional[str] = None
-    description: Optional[str] = None
-    start_date: Optional[str] = None
-    end_date: Optional[str] = None
-    status: Optional[str] = None
-
-@hackathon_router.get("")
-async def get_all_hackathons(api_key: str = Depends(get_api_key)):
-    """
-    Get all hackathons
-    """
-    logger.info("[GET_ALL_HACKATHONS] Starting")
-    
-    try:
-        db = get_db()
-        if db is None:
-            logger.error("[GET_ALL_HACKATHONS] Database unavailable")
-            raise HTTPException(status_code=503, detail="Database unavailable")
-        
-        # Get all hackathons
-        hackathons = list(db[COLLECTIONS["hackathons"]].find({}))
-        
-        # Convert ObjectIds to strings
-        for h in hackathons:
-            h["_id"] = str(h.get("_id", ""))
-        
-        logger.info(f"[GET_ALL_HACKATHONS] Success - found {len(hackathons)} hackathons")
-        
-        return {
-            "success": True,
-            "data": hackathons
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"[GET_ALL_HACKATHONS] Error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Failed to get hackathons")
-
-@hackathon_router.post("")
-async def create_hackathon(data: HackathonCreate, api_key: str = Depends(get_api_key)):
-    """
-    Create a new hackathon (admin only)
-    
-    - **name**: Hackathon name
-    - **description**: Description
-    - **start_date**: Start date
-    - **end_date**: End date
-    - **min_team_size**: Minimum team size
-    - **max_team_size**: Maximum team size
-    """
-    logger.info(f"[CREATE_HACKATHON] Starting - name={data.name}")
-    
-    try:
-        db = get_db()
-        print(f"DB object: {db}")
-        if db is None:
-            raise HTTPException(status_code=503, detail="Database unavailable")
-        
-        from uuid import uuid4
-        hackathon_id = f"hackathon_{uuid4()}"
-        print(f"Generated hackathon_id: {hackathon_id}")
-        
-        hackathon = {
-            "id": hackathon_id,
-            "hackathon_id": hackathon_id,
-            "name": data.name,
-            "description": data.description,
-            "start_date": data.start_date,
-            "end_date": data.end_date,
-            "min_team_size": data.min_team_size,
-            "max_team_size": data.max_team_size,
-            "status": data.status or "active",
-            "created_at": datetime.utcnow().isoformat(),
-            "updated_at": datetime.utcnow().isoformat()
-        }
-        print(f"Hackathon data: {hackathon}")
-        
-        result = db[COLLECTIONS["hackathons"]].insert_one(hackathon)
-        print(f"Insert result: {result}")
-        logger.info(f"[CREATE_HACKATHON] Success - id={hackathon_id}")
-        
-        return {
-            "success": True,
-            "message": "Hackathon created successfully",
-            "data": {
-                "hackathon_id": hackathon_id,
-                "name": data.name,
-                "status": data.status or "active",
-                "created_at": hackathon["created_at"]
-            }
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"[CREATE_HACKATHON] Error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Failed to create hackathon")
-
-@hackathon_router.patch("/{hackathon_id}")
-async def update_hackathon(hackathon_id: str, data: HackathonUpdate, api_key: str = Depends(get_api_key)):
-    """
-    Update hackathon details (admin only)
-    
-    - **hackathon_id**: Hackathon ID
-    - **name**: New name
-    - **description**: New description
-    - **status**: New status
-    """
-    logger.info(f"[UPDATE_HACKATHON] Starting - hackathon_id={hackathon_id}")
-    
-    try:
-        db = get_db()
-        if db is None:
-            raise HTTPException(status_code=503, detail="Database unavailable")
-        
-        # Get hackathon
-        hackathon = db[COLLECTIONS["hackathons"]].find_one({"hackathon_id": hackathon_id})
-        if not hackathon:
-            logger.error(f"[UPDATE_HACKATHON] Hackathon not found - id={hackathon_id}")
-            raise HTTPException(status_code=404, detail="Hackathon not found")
-        
-        # Build update data
-        update_data = {"updated_at": datetime.utcnow().isoformat()}
-        
-        if data.name:
-            update_data["name"] = data.name
-        if data.description:
-            update_data["description"] = data.description
-        if data.start_date:
-            update_data["start_date"] = data.start_date
-        if data.end_date:
-            update_data["end_date"] = data.end_date
-        if data.status:
-            update_data["status"] = data.status
-        
-        # Update hackathon
-        result = db[COLLECTIONS["hackathons"]].update_one(
-            {"hackathon_id": hackathon_id},
-            {"$set": update_data}
-        )
-        
-        if result.modified_count == 0:
-            logger.warning(f"[UPDATE_HACKATHON] No changes made")
-            raise HTTPException(status_code=400, detail="No changes were made")
-        
-        logger.info(f"[UPDATE_HACKATHON] Success - id={hackathon_id}")
-        
-        return {
-            "success": True,
-            "message": "Hackathon updated successfully",
-            "data": {"hackathon_id": hackathon_id}
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"[UPDATE_HACKATHON] Error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Failed to update hackathon")
-
-# @hackathon_router.post("/join")

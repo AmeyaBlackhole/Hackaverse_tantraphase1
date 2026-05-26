@@ -8,6 +8,7 @@ import logging
 from ..auth import get_api_key, get_current_user_id
 from ..database import get_db
 from ..db_models import COLLECTIONS
+from ..schemas.response import APIResponse
 
 logger = logging.getLogger(__name__)
 
@@ -88,18 +89,30 @@ async def create_submission(data: SubmissionCreate, user_id: str = Depends(get_c
         # Insert submission
         result = db[COLLECTIONS["submissions"]].insert_one(submission)
         logger.info(f"[CREATE_SUBMISSION] Submission created - id={submission_id}")
-        
-        return {
-            "success": True,
-            "message": "Submission created successfully",
-            "data": {
+
+        # ── TANTRA: Emit submission.created event ──
+        try:
+            from .webhooks import dispatch_event
+            await dispatch_event("submission.created", {
+                "submission_id": submission_id,
+                "team_id": data.team_id,
+                "project_title": data.project_title,
+                "submitted_by": user_id,
+            })
+        except Exception:
+            pass  # Non-blocking
+
+        return APIResponse(
+            success=True,
+            message="Submission created successfully",
+            data={
                 "submission_id": submission_id,
                 "team_id": data.team_id,
                 "project_title": data.project_title,
                 "status": "submitted",
                 "created_at": submission["created_at"]
             }
-        }
+        )
         
     except HTTPException:
         raise
@@ -169,16 +182,12 @@ async def update_submission(submission_id: str, data: SubmissionUpdate, user_id:
         # Fetch updated submission
         updated_submission = db[COLLECTIONS["submissions"]].find_one({"submission_id": submission_id})
         
-        return {
-            "success": True,
-            "message": "Submission updated successfully",
-            "data": {
+        return APIResponse(success=True, message="Submission updated successfully", data={
                 "submission_id": updated_submission.get("submission_id"),
                 "project_title": updated_submission.get("project_title"),
                 "status": updated_submission.get("status"),
                 "updated_at": updated_submission.get("updated_at")
-            }
-        }
+            })
         
     except HTTPException:
         raise

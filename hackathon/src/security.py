@@ -37,6 +37,9 @@ class SecurityManager:
     def __init__(self):
         self.nonces = {}  # nonce -> expiry_time
         self.api_secret = os.getenv("SECURITY_SECRET_KEY", "default_secret_for_dev")
+        if self.api_secret == "default_secret_for_dev" and os.getenv("ENV", "").lower() == "production":
+            import logging as _log
+            _log.getLogger(__name__).critical("[SECURITY] SECURITY_SECRET_KEY using default in PRODUCTION!")
         self.rate_limiter = RateLimiter()
         self.lock = threading.Lock()
         self.ledger = []  # Simple ledger storage for testing
@@ -200,12 +203,9 @@ security_manager = SecurityManager()
 
 # API Key roles mapping
 API_KEY_ROLES = {
-    os.getenv("API_KEY", "default_key"): "admin",  # Default API key is admin
-    # Example agent key for demonstration
-    "agent_key_demo": "agent",
-    # Add more mappings as needed, e.g.:
-    # "agent_key_123": "agent",
-    # "admin_key_456": "admin",
+    os.getenv("API_KEY", "default_key"): "admin",
+    # Add production agent keys via env vars:
+    # os.getenv("AGENT_API_KEY", ""): "agent",
 }
 
 def get_api_key_role(api_key: str) -> Optional[str]:

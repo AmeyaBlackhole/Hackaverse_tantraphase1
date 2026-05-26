@@ -27,16 +27,20 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         """
         # Critical: Bypass ALL middleware for health check endpoints
         # This must be the first check to prevent any processing
-        if request.url.path in ("/system/ready", "/system/health"):
+        _path = request.url.path
+        # Strip /api/v1 prefix for matching
+        _clean = _path[7:] if _path.startswith("/api/v1") else _path
+        if _clean in ("/system/ready", "/system/health"):
             return await call_next(request)
 
         # Skip security checks for certain endpoints (docs, etc.)
-        skip_paths = ["/ping", "/get/ping", "/test", "/docs", "/redoc", "/openapi.json", "/", "/network/ping", "/network/connectivity"]
-        if request.url.path in skip_paths:
+        skip_paths = ["/ping", "/get/ping", "/test", "/docs", "/redoc",
+                      "/openapi.json", "/", "/network/ping", "/network/connectivity",
+                      "/csrf-token", "/health"]
+        if _clean in skip_paths:
             return await call_next(request)
 
         logger.info(f"Processing {request.url.path}")
-        print(f"[MIDDLEWARE] Processing request: {request.method} {request.url.path}")
         try:
             # Get API key from header
             api_key = request.headers.get("X-API-Key")
@@ -49,24 +53,24 @@ class SecurityMiddleware(BaseHTTPMiddleware):
                 # Check role-based access
                 role = get_api_key_role(api_key)
                 if role:
-                    if request.url.path.startswith("/admin") and role != "admin":
+                    if _clean.startswith("/admin") and role != "admin":
                         return JSONResponse(
                             status_code=403,
                             content={"detail": "Admin access required"}
                         )
-                    if request.url.path.startswith("/agent") and role not in ["agent", "admin"]:
+                    if _clean.startswith("/agent") and role not in ["agent", "admin"]:
                         return JSONResponse(
                             status_code=403,
                             content={"detail": "Agent or admin access required"}
                         )
-                    if request.url.path.startswith("/workflows") and role not in ["agent", "admin"]:
+                    if _clean.startswith("/workflows") and role not in ["agent", "admin"]:
                         return JSONResponse(
                             status_code=403,
                             content={"detail": "Agent or admin access required for workflows"}
                         )
             else:
                 # Require API key for workflows
-                if request.url.path.startswith("/workflows"):
+                if _clean.startswith("/workflows"):
                     return JSONResponse(
                         status_code=401,
                         content={"detail": "API Key required for workflows"}

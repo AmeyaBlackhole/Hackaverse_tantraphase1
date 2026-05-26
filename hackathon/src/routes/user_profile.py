@@ -7,6 +7,7 @@ import logging
 from ..auth import get_api_key, get_current_user_id
 from ..database import get_db
 from ..db_models import COLLECTIONS
+from ..schemas.response import APIResponse
 
 logger = logging.getLogger(__name__)
 
@@ -53,9 +54,7 @@ async def get_user_profile(user_id: str = Depends(get_current_user_id)):
         
         logger.info(f"[GET_PROFILE] Success - user={user_id}")
         
-        return {
-            "success": True,
-            "data": {
+        return APIResponse(success=True, message="Profile retrieved", data={
                 "user_id": user.get("user_id"),
                 "email": user.get("email"),
                 "name": user.get("name"),
@@ -69,8 +68,7 @@ async def get_user_profile(user_id: str = Depends(get_current_user_id)):
                 "team_ids": team_ids,
                 "created_at": user.get("created_at"),
                 "updated_at": user.get("updated_at")
-            }
-        }
+            })
         
     except HTTPException:
         raise
@@ -144,10 +142,7 @@ async def update_user_profile(data: UserProfileUpdate, user_id: str = Depends(ge
         # Fetch updated user
         updated_user = db[COLLECTIONS["users"]].find_one({"user_id": user_id})
         
-        return {
-            "success": True,
-            "message": "Profile updated successfully",
-            "data": {
+        return APIResponse(success=True, message="Profile updated successfully", data={
                 "user_id": updated_user.get("user_id"),
                 "name": updated_user.get("name"),
                 "bio": updated_user.get("bio"),
@@ -156,8 +151,7 @@ async def update_user_profile(data: UserProfileUpdate, user_id: str = Depends(ge
                 "location": updated_user.get("location"),
                 "profile_completion": updated_user.get("profile_completion"),
                 "updated_at": updated_user.get("updated_at")
-            }
-        }
+            })
         
     except HTTPException:
         raise
@@ -220,9 +214,7 @@ async def get_user_stats(user_id: str = Depends(get_current_user_id)):
         
         logger.info(f"[GET_STATS] Success - user={user_id}")
         
-        return {
-            "success": True,
-            "data": {
+        return APIResponse(success=True, message="User stats retrieved", data={
                 "user_id": user_id,
                 "teams_count": teams_count,
                 "submissions_count": submissions_count,
@@ -230,8 +222,7 @@ async def get_user_stats(user_id: str = Depends(get_current_user_id)):
                 "hackathons_participated": hackathons_count,
                 "profile_completion": user.get("profile_completion", 0),
                 "role": user.get("role", "participant")
-            }
-        }
+            })
         
     except HTTPException:
         raise

@@ -1,11 +1,8 @@
 import { apiService } from './api';
 import { API_BASE_URL } from '../constants/appConstants';
+import { getAuthHeaders } from '../constants/apiKey';
 
-const defaultHeaders = () => ({
-  'Content-Type': 'application/json',
-  'X-API-Key': import.meta.env.VITE_API_KEY || '2b899caf7e3aea924c96761326bdded5162da31a9d1fdba59a2a451d2335c778',
-  Authorization: localStorage.getItem('authToken') ? `Bearer ${localStorage.getItem('authToken')}` : undefined
-});
+const defaultHeaders = () => getAuthHeaders();
 
 export const notificationService = {
   // Create notification

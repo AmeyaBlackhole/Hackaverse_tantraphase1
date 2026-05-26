@@ -27,30 +27,29 @@ def connect_to_db():
     
     # Check if URI is set
     if not MONGODB_URI:
-        print("\n❌ ERROR: MONGODB_URI environment variable is NOT SET")
-        print("   Please add MONGODB_URI to your .env file")
+        logger.error("[DB] MONGODB_URI environment variable is NOT SET — add to .env")
         DB_AVAILABLE = False
         return False
     
     # Check if URI is valid format
     if not MONGODB_URI.startswith(("mongodb://", "mongodb+srv://")):
-        print(f"\n❌ ERROR: MONGODB_URI has invalid format")
-        print(f"   Expected: mongodb:// or mongodb+srv://")
-        print(f"   Got: {MONGODB_URI[:50]}...")
+        logger.error(f"[DB] MONGODB_URI has invalid format — expected mongodb:// or mongodb+srv://")
         DB_AVAILABLE = False
         return False
     
     try:
-        print(f"\n🔄 Connecting to MongoDB...")
-        print(f"   Database: {DB_NAME}")
-        print(f"   URI: {MONGODB_URI[:50]}...")
+        logger.info(f"[DB] Connecting to MongoDB... Database: {DB_NAME}")
         
-        # Create connection
+        # Create connection with production-grade pooling
         client = MongoClient(
             MONGODB_URI,
             serverSelectionTimeoutMS=5000,
             connectTimeoutMS=5000,
-            socketTimeoutMS=5000
+            socketTimeoutMS=5000,
+            maxPoolSize=50,
+            minPoolSize=5,
+            maxIdleTimeMS=30000,
+            retryWrites=True,
         )
         
         # Test connection with ping
@@ -62,19 +61,36 @@ def connect_to_db():
         # Get collections count
         collections = db.list_collection_names()
         
-        print(f"\n✅ MongoDB Connected Successfully!")
-        print(f"   Database: {DB_NAME}")
-        print(f"   Collections: {len(collections)}")
-        print()
+        logger.info(f"[DB] MongoDB Connected! Database: {DB_NAME} | Collections: {len(collections)}")
+
+        # Create indexes for performance and TTL cleanup
+        try:
+            # Sessions: auto-expire after 7 days
+            db["sessions"].create_index("expires_at", expireAfterSeconds=0)
+            # Users: unique email, fast lookup by user_id
+            db["users"].create_index("email", unique=True, sparse=True)
+            db["users"].create_index("user_id", unique=True, sparse=True)
+            # Teams: fast lookup
+            db["teams"].create_index("team_id", unique=True, sparse=True)
+            db["teams"].create_index("hackathon_id")
+            # Submissions
+            db["submissions"].create_index("team_id")
+            db["submissions"].create_index("hackathon_id")
+            # Notifications: fast per-user lookup
+            db["notifications"].create_index([("user_id", 1), ("created_at", -1)])
+            # Webhooks
+            db["webhooks"].create_index("webhook_id", unique=True, sparse=True)
+            # Provenance
+            db["provenance_logs"].create_index("timestamp")
+            logger.info("[DB] Indexes created/verified")
+        except Exception as idx_err:
+            logger.warning(f"[DB] Index creation warning (non-fatal): {idx_err}")
         
         DB_AVAILABLE = True
         return True
         
     except Exception as e:
-        print(f"\n❌ MongoDB Connection Failed!")
-        print(f"   Error: {str(e)}")
-        print(f"   Type: {type(e).__name__}")
-        print()
+        logger.error(f"[DB] MongoDB Connection Failed! {type(e).__name__}: {str(e)}")
         DB_AVAILABLE = False
         return False
 
@@ -110,5 +126,5 @@ def get_db_status():
         "connected": DB_AVAILABLE,
         "database": DB_NAME,
         "uri_set": bool(MONGODB_URI),
-        "status": "✅ Connected" if DB_AVAILABLE else "❌ Not Connected"
+        "status": "Connected" if DB_AVAILABLE else "Not Connected"
     }

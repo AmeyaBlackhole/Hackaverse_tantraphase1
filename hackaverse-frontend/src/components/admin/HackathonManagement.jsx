@@ -4,6 +4,7 @@ import { useToast, ToastContainer } from '../../hooks/useToast.jsx';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { FormSkeleton, CardSkeleton } from '../ui/Skeletons';
 import { API_BASE_URL } from '../../constants/appConstants';
+import { getApiKey } from '../../constants/apiKey';
 
 export default function HackathonManagement() {
   const [hackathons, setHackathons] = useState([]);
@@ -32,9 +33,9 @@ export default function HackathonManagement() {
   const fetchHackathons = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${API_BASE_URL}/api/hackathons`, {
+      const response = await fetch(`${API_BASE_URL}/hackathons`, {
         headers: { 
-          'X-API-Key': '2b899caf7e3aea924c96761326bdded5162da31a9d1fdba59a2a451d2335c778'
+          'X-API-Key': getApiKey()
         }
       });
       const data = await response.json();
@@ -69,10 +70,10 @@ export default function HackathonManagement() {
 
   const confirmDelete = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/hackathons/${confirmDialog.hackathonId}`, {
+      const response = await fetch(`${API_BASE_URL}/hackathons/${confirmDialog.hackathonId}`, {
         method: 'DELETE',
         headers: { 
-          'X-API-Key': '2b899caf7e3aea924c96761326bdded5162da31a9d1fdba59a2a451d2335c778'
+          'X-API-Key': getApiKey()
         }
       });
       
@@ -114,11 +115,11 @@ export default function HackathonManagement() {
       setLoading(true);
       
       if (editingHackathon) {
-        const response = await fetch(`${API_BASE_URL}/api/hackathons/${editingHackathon.id}`, {
+        const response = await fetch(`${API_BASE_URL}/hackathons/${editingHackathon.id}`, {
           method: 'PATCH',
           headers: {
             'Content-Type': 'application/json',
-            'X-API-Key': '2b899caf7e3aea924c96761326bdded5162da31a9d1fdba59a2a451d2335c778'
+            'X-API-Key': getApiKey()
           },
           body: JSON.stringify(formData)
         });
@@ -131,11 +132,11 @@ export default function HackathonManagement() {
           showError('Failed to update hackathon');
         }
       } else {
-        const response = await fetch(`${API_BASE_URL}/api/hackathons`, {
+        const response = await fetch(`${API_BASE_URL}/hackathons`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'X-API-Key': '2b899caf7e3aea924c96761326bdded5162da31a9d1fdba59a2a451d2335c778'
+            'X-API-Key': getApiKey()
           },
           body: JSON.stringify(formData)
         });
@@ -168,11 +169,11 @@ export default function HackathonManagement() {
     }
     
     try {
-      const response = await fetch(`${API_BASE_URL}/api/hackathons/${confirmDialog.hackathonId}`, {
+      const response = await fetch(`${API_BASE_URL}/hackathons/${confirmDialog.hackathonId}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          'X-API-Key': '2b899caf7e3aea924c96761326bdded5162da31a9d1fdba59a2a451d2335c778'
+          'X-API-Key': getApiKey()
         },
         body: JSON.stringify({ 
           status: confirmDialog.currentStatus === 'active' ? 'inactive' : 'active' 

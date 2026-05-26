@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { getApiKey } from '../constants/apiKey';
 
 const SyncContext = createContext();
 
@@ -24,7 +25,7 @@ export const SyncProvider = ({ children }) => {
 
   const fetchAllData = useCallback(async () => {
     try {
-      const apiKey = import.meta.env.VITE_API_KEY || '2b899caf7e3aea924c96761326bdded5162da31a9d1fdba59a2a451d2335c778';
+      const apiKey = getApiKey();
       const baseUrl = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
       const authToken = localStorage.getItem('authToken');
       const headers = {
@@ -35,9 +36,9 @@ export const SyncProvider = ({ children }) => {
 
       const [teamsRes, hackathonsRes, submissionsRes, activitiesRes] = await Promise.all([
         fetch(`${baseUrl}/teams/list`, { headers }).catch(() => null),
-        fetch(`${baseUrl}/api/hackathons`, { headers }).catch(() => null),
+        fetch(`${baseUrl}/hackathons`, { headers }).catch(() => null),
         fetch(`${baseUrl}/submissions`, { headers }).catch(() => null),
-        fetch(`${baseUrl}/api/admin/dashboard`, { headers }).catch(() => null)
+        fetch(`${baseUrl}/admin/dashboard`, { headers }).catch(() => null)
       ]);
 
       const teams = teamsRes ? (await teamsRes.json()).data || [] : [];

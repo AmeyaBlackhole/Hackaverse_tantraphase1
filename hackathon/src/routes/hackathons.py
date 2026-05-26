@@ -6,11 +6,12 @@ import logging
 from ..auth import get_api_key
 from ..database import get_db
 from ..db_models import COLLECTIONS
+from ..schemas.response import APIResponse
 
 logger = logging.getLogger(__name__)
 
-public_router = APIRouter(prefix="/api/hackathons", tags=["hackathons"])
-router = APIRouter(prefix="/api/hackathons", tags=["hackathons"], dependencies=[Depends(get_api_key)])
+public_router = APIRouter(prefix="/hackathons", tags=["hackathons"])
+router = APIRouter(prefix="/hackathons", tags=["hackathons"], dependencies=[Depends(get_api_key)])
 
 class HackathonCreate(BaseModel):
     name: str = Field(..., min_length=1)
@@ -33,8 +34,12 @@ class HackathonUpdate(BaseModel):
 
 # Public endpoints FIRST (no auth)
 @public_router.get("/active")
-async def get_active_hackathons():
-    """Get all active hackathons (Public - no auth required)"""
+async def get_active_hackathons(page: int = 1, limit: int = 20):
+    """Get all active hackathons (Public - no auth required)
+    
+    - **page**: Page number (default: 1)
+    - **limit**: Items per page (default: 20, max: 100)
+    """
     db = get_db()
     
     if db is None:
@@ -42,19 +47,60 @@ async def get_active_hackathons():
         raise HTTPException(status_code=503, detail="Database unavailable")
     
     try:
-        cursor = db[COLLECTIONS["hackathons"]].find({"status": "active"})
+        limit = min(max(limit, 1), 100)
+        page = max(page, 1)
+        skip = (page - 1) * limit
+
+        query = {"status": "active"}
+        total = db[COLLECTIONS["hackathons"]].count_documents(query)
+        cursor = db[COLLECTIONS["hackathons"]].find(query).skip(skip).limit(limit)
         hackathons = list(cursor)
         for h in hackathons:
             h["_id"] = str(h["_id"])
         
-        logger.info(f"[HACKATHONS] Retrieved {len(hackathons)} active hackathons")
-        return {
-            "success": True,
-            "data": hackathons
-        }
+        logger.info(f"[HACKATHONS] Retrieved {len(hackathons)} active hackathons (page {page})")
+        return APIResponse(success=True, message=f"{len(hackathons)} active hackathons", data={
+            "items": hackathons,
+            "pagination": {
+                "page": page, "limit": limit, "total": total,
+                "total_pages": max(1, -(-total // limit)),
+                "has_next": page * limit < total, "has_prev": page > 1,
+            }
+        })
     except Exception as e:
         logger.error(f"[HACKATHONS] Error retrieving active hackathons: {str(e)}")
         raise HTTPException(status_code=500, detail="Error retrieving hackathons")
+
+@router.get("")
+async def get_all_hackathons(page: int = 1, limit: int = 50):
+    """Get all hackathons (authenticated — admin/management view)
+
+    - **page**: Page number (default: 1)
+    - **limit**: Items per page (default: 50, max: 100)
+    """
+    db = get_db()
+
+    if db is None:
+        logger.error("[HACKATHONS] Database unavailable for get_all_hackathons")
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    try:
+        limit = min(max(limit, 1), 100)
+        page = max(page, 1)
+        skip = (page - 1) * limit
+
+        total = db[COLLECTIONS["hackathons"]].count_documents({})
+        cursor = db[COLLECTIONS["hackathons"]].find({}).skip(skip).limit(limit)
+        hackathons = list(cursor)
+        for h in hackathons:
+            h["_id"] = str(h["_id"])
+
+        logger.info(f"[HACKATHONS] Retrieved {len(hackathons)} hackathons (page {page})")
+        return APIResponse(success=True, message=f"{len(hackathons)} hackathons", data=hackathons)
+    except Exception as e:
+        logger.error(f"[HACKATHONS] Error retrieving hackathons: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error retrieving hackathons")
+
 
 @router.post("")
 async def create_hackathon(data: HackathonCreate):
@@ -97,16 +143,12 @@ async def create_hackathon(data: HackathonCreate):
         
         logger.info(f"[CREATE_HACKATHON] Success - id={hackathon_id}")
         
-        return {
-            "success": True,
-            "message": "Hackathon created successfully",
-            "data": {
+        return APIResponse(success=True, message="Hackathon created successfully", data={
                 "hackathon_id": hackathon_id,
                 "name": data.name,
                 "status": data.status or "active",
                 "created_at": hackathon["created_at"]
-            }
-        }
+            })
         
     except HTTPException:
         raise
@@ -164,11 +206,7 @@ async def update_hackathon(hackathon_id: str, data: HackathonUpdate):
         
         logger.info(f"[UPDATE_HACKATHON] Success - id={hackathon_id}")
         
-        return {
-            "success": True,
-            "message": "Hackathon updated successfully",
-            "data": {"hackathon_id": hackathon_id}
-        }
+        return APIResponse(success=True, message="Hackathon updated successfully", data={"hackathon_id": hackathon_id})
         
     except HTTPException:
         raise
@@ -206,11 +244,7 @@ async def delete_hackathon(hackathon_id: str):
         
         logger.info(f"[DELETE_HACKATHON] Success - id={hackathon_id}")
         
-        return {
-            "success": True,
-            "message": "Hackathon deleted successfully",
-            "data": {"hackathon_id": hackathon_id}
-        }
+        return APIResponse(success=True, message="Hackathon deleted successfully", data={"hackathon_id": hackathon_id})
         
     except HTTPException:
         raise

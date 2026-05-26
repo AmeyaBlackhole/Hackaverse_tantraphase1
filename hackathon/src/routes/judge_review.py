@@ -6,6 +6,7 @@ import logging
 from ..auth import get_api_key, get_current_user_id
 from ..database import get_db
 from ..db_models import COLLECTIONS
+from ..schemas.response import APIResponse
 
 logger = logging.getLogger(__name__)
 
@@ -56,10 +57,7 @@ async def get_all_submissions_for_judge(status: Optional[str] = None, hackathon_
         submissions.append(item)
 
     logger.info(f"Judge {user_id} retrieved {len(submissions)} submissions (status={status}, hackathon_id={hackathon_id})")
-    return {
-        "success": True,
-        "data": submissions
-    }
+    return APIResponse(success=True, message=f"{len(submissions)} submissions retrieved", data=submissions)
 
 @router.get("/submissions/pending")
 async def get_pending_submissions(hackathon_id: Optional[str] = None, limit: int = 100, user_id: str = Depends(get_current_user_id)):
@@ -106,10 +104,7 @@ async def get_pending_submissions(hackathon_id: Optional[str] = None, limit: int
         pending.append(item)
 
     logger.info(f"Judge {user_id} retrieved {len(pending)} pending submissions (hackathon_id={hackathon_id})")
-    return {
-        "success": True,
-        "data": pending
-    }
+    return APIResponse(success=True, message=f"{len(pending)} pending submissions", data=pending)
 
 @router.get("/submissions/all")
 async def get_all_submissions(hackathon_id: Optional[str] = None, limit: int = 100, user_id: str = Depends(get_current_user_id)):
@@ -145,10 +140,7 @@ async def get_all_submissions(hackathon_id: Optional[str] = None, limit: int = 1
         submissions.append(item)
 
     logger.info(f"Judge {user_id} retrieved {len(submissions)} total submissions (hackathon_id={hackathon_id})")
-    return {
-        "success": True,
-        "data": submissions
-    }
+    return APIResponse(success=True, message=f"{len(submissions)} total submissions", data=submissions)
 
 @router.post("/review/submit")
 async def submit_review(review: ReviewSubmit, user_id: str = Depends(get_current_user_id)):
@@ -184,15 +176,11 @@ async def submit_review(review: ReviewSubmit, user_id: str = Depends(get_current
     )
 
     logger.info(f"Judge {user_id} reviewed submission: {review.submission_id}")
-    return {
-        "success": True,
-        "message": "Review submitted successfully",
-        "data": {
+    return APIResponse(success=True, message="Review submitted successfully", data={
             "submission_id": review.submission_id,
             "judge_reviewed": True,
             "final_score": review.final_score
-        }
-    }
+        })
 
 @router.get("/my-assignments")
 async def get_judge_assignments(user_id: str = Depends(get_current_user_id)):
@@ -216,7 +204,4 @@ async def get_judge_assignments(user_id: str = Depends(get_current_user_id)):
             s["_id"] = str(s["_id"])
     
     logger.info(f"Judge {user_id} has {len(submissions)} assigned submissions")
-    return {
-        "success": True,
-        "data": submissions
-    }
+    return APIResponse(success=True, message=f"{len(submissions)} assigned submissions", data=submissions)

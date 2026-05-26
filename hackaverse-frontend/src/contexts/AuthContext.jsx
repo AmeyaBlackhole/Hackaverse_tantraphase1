@@ -41,8 +41,15 @@ export const AuthProvider = ({ children }) => {
     try {
       const response = await apiService.auth.login({ email, password });
       
-      const { access_token, refresh_token, user } = response.data;
+      // Backend wraps responses in APIResponse envelope: {success, message, data: {...}, trace_id}
+      // The actual payload (access_token, refresh_token, user) is inside response.data.data
+      const payload = response.data?.data || response.data;
+      const { access_token, refresh_token, user } = payload;
       
+      if (!access_token) {
+        throw new Error('No access token received from server');
+      }
+
       // Store tokens and user data
       localStorage.setItem(AUTH_TOKEN_KEY, access_token);
       localStorage.setItem('refreshToken', refresh_token);
@@ -50,7 +57,7 @@ export const AuthProvider = ({ children }) => {
       // Add avatar if not present
       const userData = {
         ...user,
-        avatar: user.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.email}`
+        avatar: user?.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.email}`
       };
       
       localStorage.setItem(USER_DATA_KEY, JSON.stringify(userData));
@@ -60,7 +67,7 @@ export const AuthProvider = ({ children }) => {
       
       return { success: true, user: userData };
     } catch (error) {
-      throw new Error(error.response?.data?.detail || error.message || 'Login failed');
+      throw new Error(error.response?.data?.message || error.response?.data?.detail || error.message || 'Login failed');
     }
   };
 
@@ -73,8 +80,14 @@ export const AuthProvider = ({ children }) => {
         role
       });
       
-      const { access_token, refresh_token, user } = response.data;
+      // Backend wraps responses in APIResponse envelope: {success, message, data: {...}, trace_id}
+      const payload = response.data?.data || response.data;
+      const { access_token, refresh_token, user } = payload;
       
+      if (!access_token) {
+        throw new Error('No access token received from server');
+      }
+
       // Store tokens and user data
       localStorage.setItem(AUTH_TOKEN_KEY, access_token);
       localStorage.setItem('refreshToken', refresh_token);
@@ -82,7 +95,7 @@ export const AuthProvider = ({ children }) => {
       // Add avatar if not present
       const userData = {
         ...user,
-        avatar: user.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.email}`
+        avatar: user?.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.email}`
       };
       
       localStorage.setItem(USER_DATA_KEY, JSON.stringify(userData));
@@ -92,7 +105,7 @@ export const AuthProvider = ({ children }) => {
       
       return { success: true, user: userData };
     } catch (error) {
-      throw new Error(error.response?.data?.detail || error.message || 'Registration failed');
+      throw new Error(error.response?.data?.message || error.response?.data?.detail || error.message || 'Registration failed');
     }
   };
 

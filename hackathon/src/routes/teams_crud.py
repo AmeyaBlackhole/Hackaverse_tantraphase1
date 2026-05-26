@@ -4,10 +4,11 @@ import logging
 from ..auth import get_api_key, get_current_user_id
 from ..database import get_db
 from ..db_models import COLLECTIONS
+from ..schemas.response import APIResponse
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/teams", tags=["teams_crud"], dependencies=[Depends(get_api_key)])
+router = APIRouter(prefix="/teams", tags=["teams_crud"], dependencies=[Depends(get_api_key)])
 
 @router.get("")
 async def get_all_teams(user_id: str = Depends(get_current_user_id)):
@@ -24,7 +25,7 @@ async def get_all_teams(user_id: str = Depends(get_current_user_id)):
         
         if not team_ids:
             logger.info(f"[TEAMS] No teams found for user: {user_id}")
-            return {"success": True, "data": []}
+            return APIResponse(success=True, message="No database", data=[])
         
         cursor = db[COLLECTIONS["teams"]].find({"team_id": {"$in": team_ids}})
         teams = list(cursor)
@@ -32,7 +33,7 @@ async def get_all_teams(user_id: str = Depends(get_current_user_id)):
             t["_id"] = str(t["_id"])
         
         logger.info(f"[TEAMS] Retrieved {len(teams)} teams for user: {user_id}")
-        return {"success": True, "data": teams}
+        return APIResponse(success=True, message=f"Found {len(teams)} team(s)", data=teams)
     except Exception as e:
         logger.error(f"[TEAMS] Error retrieving teams: {str(e)}")
         raise HTTPException(status_code=500, detail="Error retrieving teams")
@@ -55,7 +56,7 @@ async def get_team_by_id(team_id: str, user_id: str = Depends(get_current_user_i
         team = db[COLLECTIONS["teams"]].find_one({"team_id": team_id})
         if team:
             logger.info(f"[TEAMS] Retrieved team {team_id} for user {user_id}")
-            return {"success": True, "data": {**team, "_id": str(team["_id"])}}
+            return APIResponse(success=True, message="Team retrieved", data={**team, "_id": str(team["_id"])})
         
         logger.error(f"[TEAMS] Team not found: {team_id}")
         raise HTTPException(status_code=404, detail="Team not found")

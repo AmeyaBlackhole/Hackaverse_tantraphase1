@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { apiService } from '../../services/api';
 import { useToast } from '../../hooks/useToast';
+import { API_BASE_URL } from '../../constants/appConstants';
+import { getApiKey } from '../../constants/apiKey';
 
 const ProjectSubmissionForm = ({ onSuccess, onCancel }) => {
   const [formData, setFormData] = useState({
@@ -89,11 +91,11 @@ const ProjectSubmissionForm = ({ onSuccess, onCancel }) => {
 
       console.log('SUBMISSION PAYLOAD:', payload);
 
-      const response = await fetch('http://127.0.0.1:8000/submissions', {
+      const response = await fetch(`${API_BASE_URL}/submissions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-API-Key': '2b899caf7e3aea924c96761326bdded5162da31a9d1fdba59a2a451d2335c778'
+          'X-API-Key': getApiKey()
         },
         body: JSON.stringify(payload)
       });
