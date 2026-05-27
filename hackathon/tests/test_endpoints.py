@@ -64,14 +64,16 @@ class TestHackathonEndpoints:
             mock_get_db.return_value = mock_db
 
             resp = client.get(
-                "/api/hackathons/active?page=1&limit=10",
+                "/hackathons/active?page=1&limit=10",
                 headers=api_key_headers,
             )
             assert resp.status_code == 200
             data = resp.json()
-            assert "pagination" in data
-            assert data["pagination"]["page"] == 1
-            assert data["pagination"]["limit"] == 10
+            assert data["success"] is True
+            inner = data["data"]
+            assert "pagination" in inner
+            assert inner["pagination"]["page"] == 1
+            assert inner["pagination"]["limit"] == 10
 
     def test_create_hackathon(self, client, api_key_headers):
         """Should create a hackathon."""
@@ -83,7 +85,7 @@ class TestHackathonEndpoints:
             mock_get_db.return_value = mock_db
 
             resp = client.post(
-                "/api/hackathons",
+                "/hackathons",
                 json={
                     "name": "Test Hackathon",
                     "description": "A test hackathon",
@@ -123,7 +125,8 @@ class TestNotificationEndpoints:
             )
             assert resp.status_code == 200
             data = resp.json()
-            assert "pagination" in data
+            assert data["success"] is True
+            assert "pagination" in data["data"]
 
 
 class TestWebhookEndpoints:
