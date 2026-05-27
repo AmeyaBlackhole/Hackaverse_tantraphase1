@@ -24,9 +24,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def _get_trace_id(request: Request) -> str:
-    """Extract trace_id from request state, or generate a fallback."""
-    return getattr(getattr(request, "state", None), "trace_id", None) or "hv-unknown"
+from ..observability.trace_context import get_trace_id_from_request
 
 
 def _status_to_error_code(status_code: int) -> str:
@@ -46,7 +44,7 @@ def _status_to_error_code(status_code: int) -> str:
 
 async def http_exception_handler(request: Request, exc: HTTPException):
     """Handle HTTPException with deterministic error contract."""
-    trace_id = _get_trace_id(request)
+    trace_id = get_trace_id_from_request(request)
     error_code = _status_to_error_code(exc.status_code)
 
     # Use detail as message if it's a string, otherwise extract
@@ -79,7 +77,7 @@ async def http_exception_handler(request: Request, exc: HTTPException):
 
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     """Handle Pydantic validation errors with clear, replay-safe messages."""
-    trace_id = _get_trace_id(request)
+    trace_id = get_trace_id_from_request(request)
     errors = exc.errors()
 
     # Format validation errors into user-friendly messages
@@ -119,7 +117,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 async def generic_exception_handler(request: Request, exc: Exception):
     """Handle unhandled exceptions — never expose stack traces to clients."""
-    trace_id = _get_trace_id(request)
+    trace_id = get_trace_id_from_request(request)
     # Sanitize message for client
     safe_msg = str(exc).encode("ascii", "ignore").decode("ascii")
 
