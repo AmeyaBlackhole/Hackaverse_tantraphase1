@@ -1,11 +1,15 @@
 from pydantic import BaseModel, Field
-from typing import Optional, Any, Dict
-import uuid
+from typing import Optional, Any, Dict, TYPE_CHECKING
+
+from ..observability.trace_context import get_current_trace_id, get_trace_id_from_request
+
+if TYPE_CHECKING:
+    from starlette.requests import Request
 
 
-def _gen_trace_id() -> str:
-    """Generate a canonical trace ID for request tracing."""
-    return f"hv-{uuid.uuid4().hex[:16]}"
+def _resolve_trace_id() -> str:
+    """Use the active request trace_id when middleware has set context."""
+    return get_current_trace_id()
 
 
 class APIResponse(BaseModel):
@@ -24,8 +28,27 @@ class APIResponse(BaseModel):
     success: bool
     message: str
     data: Optional[Any] = None
-    trace_id: str = Field(default_factory=_gen_trace_id)
+    trace_id: str = Field(default_factory=_resolve_trace_id)
     error_code: Optional[str] = None
+
+    @classmethod
+    def from_request(
+        cls,
+        request: "Request",
+        *,
+        success: bool,
+        message: str,
+        data: Optional[Any] = None,
+        error_code: Optional[str] = None,
+    ) -> "APIResponse":
+        """Build a response envelope bound to the current request trace."""
+        return cls(
+            success=success,
+            message=message,
+            data=data,
+            trace_id=get_trace_id_from_request(request),
+            error_code=error_code,
+        )
 
 
 class PaginatedAPIResponse(APIResponse):
@@ -43,5 +66,5 @@ class JudgingResult(BaseModel):
     judge_type: str  # "ai" or "manual"
     feedback: Optional[str] = None
     version: int = 1
-    trace_id: str = Field(default_factory=_gen_trace_id)
+    trace_id: str = Field(default_factory=_resolve_trace_id)
     provenance_hash: Optional[str] = None  # hash from provenance chain

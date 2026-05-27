@@ -105,58 +105,7 @@ app.add_middleware(SecurityMiddleware)
 # ============================================================================
 # TRACE ID MIDDLEWARE — canonical request tracing with correlation logging
 # ============================================================================
-import uuid as _uuid
-import time as _time
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import JSONResponse
-from .observability.correlation_logger import CorrelationLogger
-
-class TraceIdMiddleware(BaseHTTPMiddleware):
-    """Inject a unique trace_id into every request/response.
-
-    The trace_id is:
-    - Generated per request as 'hv-<hex16>'
-    - Stored on request.state.trace_id for downstream use
-    - Returned in X-Request-Id response header
-    - Used by APIResponse for correlation
-    - Logged with full request lifecycle (start + completion)
-
-    Trace propagation:
-    - Accepts optional X-Trace-Parent header from upstream callers
-    - Stores parent_trace_id on request.state for lineage reconstruction
-    - Never reuses client-supplied IDs (generates own trace_id for safety)
-    """
-
-    # Paths that skip lifecycle logging to reduce noise
-    _QUIET_PATHS = {"/", "/health", "/docs", "/redoc", "/openapi.json",
-                    "/csrf-token", "/system/ready", "/system/health"}
-
-    async def dispatch(self, request: Request, call_next):
-        trace_id = f"hv-{_uuid.uuid4().hex[:16]}"
-        request.state.trace_id = trace_id
-        # Capture parent trace_id from upstream caller (frontend or TANTRA)
-        parent_trace = request.headers.get("x-trace-parent")
-        request.state.parent_trace_id = parent_trace or None
-        # Pre-set user_id placeholder; auth layer can overwrite later
-        if not hasattr(request.state, "user_id"):
-            request.state.user_id = "anonymous"
-
-        # Build correlation logger for this request
-        path = request.url.path
-        clean_path = path.replace("/api/v1", "") if path.startswith("/api/v1") else path
-        should_log = clean_path not in self._QUIET_PATHS
-
-        if should_log:
-            clog = CorrelationLogger.from_request(request)
-            clog.request_started()
-
-        response = await call_next(request)
-        response.headers["X-Request-Id"] = trace_id
-
-        if should_log:
-            clog.request_completed(response.status_code)
-
-        return response
+from .observability.trace_middleware import TraceIdMiddleware
 
 app.add_middleware(TraceIdMiddleware)
 
@@ -164,6 +113,8 @@ app.add_middleware(TraceIdMiddleware)
 # CSRF PROTECTION MIDDLEWARE
 # ============================================================================
 import secrets as _secrets
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
 
 class CSRFMiddleware(BaseHTTPMiddleware):
     """CSRF protection for state-changing requests.
